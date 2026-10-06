@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/NexSync.API/NexSync.API.csproj" />
+    <Project Path="src/NexSync.Application/NexSync.Application.csproj" />
+    <Project Path="src/NexSync.Domain/NexSync.Domain.csproj" />
+    <Project Path="src/NexSync.Infrastructure/NexSync.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/NexSync.Tests/NexSync.Tests.csproj" />
+  </Folder>
+</Solution>
