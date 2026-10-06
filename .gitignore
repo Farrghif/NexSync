@@ -1,146 +1,47 @@
-# ============================================================
-# .NET / C#
-# ============================================================
+# .NET
 bin/
 obj/
 *.user
 *.suo
 *.sln.docstates
+.vs/
 *.DotSettings
 *.DotSettings.user
-.vs/
-*.pidb
-*.userprefs
-*.usertasks
-*.VC.db
-*.VC.opendb
 
-# Build results
-[Dd]ebug/
-[Rr]elease/
-[Xx]64/
-[Xx]86/
-[Aa][Rr][Mm]/
-[Aa][Rr][Mm]64/
-bld/
-[Bb]in/
-[Oo]bj/
-[Ll]og/
-[Ll]ogs/
-
-# .NET Core
-project.lock.json
-project.fragment.lock.json
-artifacts/
-
-# Publish output
-publish/
-PublishProfiles/
-
-# Test results
-TestResults/
-*.trx
-*.coverage
-*.coveragexml
-coverage/
-lcov.info
-
-# ============================================================
 # NuGet
-# ============================================================
 *.nupkg
 *.snupkg
 packages/
 .nuget/
-nuget.config.local
 
-# ============================================================
-# Entity Framework / Database
-# ============================================================
-*.mdf
-*.ldf
-*.ndf
-
-# ============================================================
-# Node / Frontend (if any)
-# ============================================================
+# Node
 node_modules/
 dist/
-.parcel-cache/
+.parcel-cache
 *.tsbuildinfo
-.next/
-out/
-build/
 
-# ============================================================
-# Docker
-# ============================================================
-.dockerignore.local
-docker-compose.override.yml
-docker-compose.local.yml
-
-# ============================================================
-# Storage / Uploads
-# ============================================================
+# Storage
 storage/
-uploads/
-wwwroot/uploads/
 
-# ============================================================
-# Environment & Secrets
-# ============================================================
+# Environment
 .env
 .env.local
 .env.*.local
-.env.development.local
-.env.test.local
-.env.production.local
-appsettings.Local.json
-appsettings.local.json
-secrets.json
 
-# ============================================================
 # Logs
-# ============================================================
 logs/
 *.log
-*.log.*
-nlog.config.local
 
-# ============================================================
 # IDE
-# ============================================================
-# Visual Studio Code
 .vscode/
-!.vscode/extensions.json
-!.vscode/launch.json.example
-
-# JetBrains (Rider)
 .idea/
-*.sln.iml
-
-# Vim / Emacs
 *.swp
 *.swo
-*~
 
-# ============================================================
 # OS
-# ============================================================
 .DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
 Thumbs.db
-desktop.ini
 
-# ============================================================
 # Misc
-# ============================================================
 temp/
 tmp/
-*.bak
-*.cache
-*.orig
