@@ -1,6 +1,0 @@
-@NexSync.API_HostAddress = http://localhost:5070
-
-GET {{NexSync.API_HostAddress}}/weatherforecast/
-Accept: application/json
-
-###
