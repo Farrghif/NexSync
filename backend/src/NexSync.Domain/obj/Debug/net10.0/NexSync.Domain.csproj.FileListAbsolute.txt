@@ -1,0 +1,11 @@
+C:\Users\farre\Downloads\NexSync\backend\src\NexSync.Domain\bin\Debug\net10.0\NexSync.Domain.deps.json
+C:\Users\farre\Downloads\NexSync\backend\src\NexSync.Domain\bin\Debug\net10.0\NexSync.Domain.dll
+C:\Users\farre\Downloads\NexSync\backend\src\NexSync.Domain\bin\Debug\net10.0\NexSync.Domain.pdb
+C:\Users\farre\Downloads\NexSync\backend\src\NexSync.Domain\obj\Debug\net10.0\NexSync.Domain.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\farre\Downloads\NexSync\backend\src\NexSync.Domain\obj\Debug\net10.0\NexSync.Domain.AssemblyInfoInputs.cache
+C:\Users\farre\Downloads\NexSync\backend\src\NexSync.Domain\obj\Debug\net10.0\NexSync.Domain.AssemblyInfo.cs
+C:\Users\farre\Downloads\NexSync\backend\src\NexSync.Domain\obj\Debug\net10.0\NexSync.Domain.csproj.CoreCompileInputs.cache
+C:\Users\farre\Downloads\NexSync\backend\src\NexSync.Domain\obj\Debug\net10.0\NexSync.Domain.dll
+C:\Users\farre\Downloads\NexSync\backend\src\NexSync.Domain\obj\Debug\net10.0\refint\NexSync.Domain.dll
+C:\Users\farre\Downloads\NexSync\backend\src\NexSync.Domain\obj\Debug\net10.0\NexSync.Domain.pdb
+C:\Users\farre\Downloads\NexSync\backend\src\NexSync.Domain\obj\Debug\net10.0\ref\NexSync.Domain.dll
