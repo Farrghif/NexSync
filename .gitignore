@@ -1,0 +1,27 @@
+## .NET
+bin/
+obj/
+*.user
+.vs/
+TestResults/
+
+## Storage (local file blobs, gitignored)
+storage/
+backend/src/NexSync.API/storage/
+*/storage/temp/
+
+## API run logs
+api.log
+api-err.log
+
+## Node / web
+node_modules/
+web/dist/
+web/.vite/
+.env
+.env.local
+
+## OS / editor
+.DS_Store
+Thumbs.db
+*.swp
