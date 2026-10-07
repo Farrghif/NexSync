@@ -1,8 +1,11 @@
 {
   "version": 2,
-  "dgSpecHash": "grWmLaZB/+M=",
+  "dgSpecHash": "bq4+Y9Spc34=",
   "success": true,
   "projectFilePath": "C:\\Users\\farre\\Downloads\\NexSync\\backend\\src\\NexSync.Application\\NexSync.Application.csproj",
-  "expectedPackageFiles": [],
+  "expectedPackageFiles": [
+    "C:\\Users\\farre\\.nuget\\packages\\microsoft.extensions.configuration.abstractions\\10.0.0\\microsoft.extensions.configuration.abstractions.10.0.0.nupkg.sha512",
+    "C:\\Users\\farre\\.nuget\\packages\\microsoft.extensions.primitives\\10.0.0\\microsoft.extensions.primitives.10.0.0.nupkg.sha512"
+  ],
   "logs": []
 }

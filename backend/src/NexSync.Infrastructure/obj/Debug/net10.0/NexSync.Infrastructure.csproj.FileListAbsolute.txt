@@ -57,6 +57,7 @@ C:\Users\farre\Downloads\NexSync\backend\src\NexSync.Infrastructure\obj\Debug\ne
 C:\Users\farre\Downloads\NexSync\backend\src\NexSync.Infrastructure\obj\Debug\net10.0\NexSync.Infrastructure.AssemblyInfoInputs.cache
 C:\Users\farre\Downloads\NexSync\backend\src\NexSync.Infrastructure\obj\Debug\net10.0\NexSync.Infrastructure.AssemblyInfo.cs
 C:\Users\farre\Downloads\NexSync\backend\src\NexSync.Infrastructure\obj\Debug\net10.0\NexSync.Infrastructure.csproj.CoreCompileInputs.cache
+C:\Users\farre\Downloads\NexSync\backend\src\NexSync.Infrastructure\obj\Debug\net10.0\NexSync.Infrastructure.sourcelink.json
 C:\Users\farre\Downloads\NexSync\backend\src\NexSync.Infrastructure\obj\Debug\net10.0\NexSync..D08CE518.Up2Date
 C:\Users\farre\Downloads\NexSync\backend\src\NexSync.Infrastructure\obj\Debug\net10.0\NexSync.Infrastructure.dll
 C:\Users\farre\Downloads\NexSync\backend\src\NexSync.Infrastructure\obj\Debug\net10.0\refint\NexSync.Infrastructure.dll

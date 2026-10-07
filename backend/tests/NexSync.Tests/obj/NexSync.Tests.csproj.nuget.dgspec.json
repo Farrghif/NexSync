@@ -77,9 +77,9 @@
               "target": "Package",
               "version": "[10.0.0, )"
             },
-            "Swashbuckle.AspNetCore": {
+            "Scalar.AspNetCore": {
               "target": "Package",
-              "version": "[6.4.0, )"
+              "version": "[2.17.13, )"
             }
           },
           "imports": [
@@ -571,6 +571,12 @@
         "net10.0": {
           "framework": "net10.0",
           "targetAlias": "net10.0",
+          "dependencies": {
+            "Microsoft.Extensions.Configuration.Abstractions": {
+              "target": "Package",
+              "version": "[10.0.0, )"
+            }
+          },
           "imports": [
             "net461",
             "net462",
@@ -1267,17 +1273,9 @@
               "target": "Package",
               "version": "[4.0.3, )"
             },
-            "Microsoft.EntityFrameworkCore": {
-              "target": "Package",
-              "version": "[10.0.0, )"
-            },
             "Microsoft.EntityFrameworkCore.Design": {
               "include": "Runtime, Build, Native, ContentFiles, Analyzers, BuildTransitive",
               "suppressParent": "All",
-              "target": "Package",
-              "version": "[10.0.0, )"
-            },
-            "Microsoft.Extensions.Configuration": {
               "target": "Package",
               "version": "[10.0.0, )"
             },
@@ -1287,7 +1285,7 @@
             },
             "System.IdentityModel.Tokens.Jwt": {
               "target": "Package",
-              "version": "[7.8.1, )"
+              "version": "[8.14.0, )"
             }
           },
           "imports": [
@@ -1649,6 +1647,14 @@
             "MSTest": {
               "target": "Package",
               "version": "[4.0.2, )"
+            },
+            "Microsoft.AspNetCore.Mvc.Testing": {
+              "target": "Package",
+              "version": "[10.0.0, )"
+            },
+            "Testcontainers.PostgreSql": {
+              "target": "Package",
+              "version": "[4.1.0, )"
             }
           },
           "imports": [

@@ -8,6 +8,7 @@ C:\Users\farre\Downloads\NexSync\backend\src\NexSync.Application\obj\Debug\net10
 C:\Users\farre\Downloads\NexSync\backend\src\NexSync.Application\obj\Debug\net10.0\NexSync.Application.AssemblyInfoInputs.cache
 C:\Users\farre\Downloads\NexSync\backend\src\NexSync.Application\obj\Debug\net10.0\NexSync.Application.AssemblyInfo.cs
 C:\Users\farre\Downloads\NexSync\backend\src\NexSync.Application\obj\Debug\net10.0\NexSync.Application.csproj.CoreCompileInputs.cache
+C:\Users\farre\Downloads\NexSync\backend\src\NexSync.Application\obj\Debug\net10.0\NexSync.Application.sourcelink.json
 C:\Users\farre\Downloads\NexSync\backend\src\NexSync.Application\obj\Debug\net10.0\NexSync..4417B6EC.Up2Date
 C:\Users\farre\Downloads\NexSync\backend\src\NexSync.Application\obj\Debug\net10.0\NexSync.Application.dll
 C:\Users\farre\Downloads\NexSync\backend\src\NexSync.Application\obj\Debug\net10.0\refint\NexSync.Application.dll

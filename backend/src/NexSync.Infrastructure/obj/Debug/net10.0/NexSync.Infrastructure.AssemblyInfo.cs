@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("NexSync.Infrastructure")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+28b9bcf46d49814c5511817c6e27c57706bb7a9c")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+7c548a416b87ea605f8d290a3e761ab5cc4cf22d")]
 [assembly: System.Reflection.AssemblyProductAttribute("NexSync.Infrastructure")]
 [assembly: System.Reflection.AssemblyTitleAttribute("NexSync.Infrastructure")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

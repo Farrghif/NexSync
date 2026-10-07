@@ -5,6 +5,7 @@ C:\Users\farre\Downloads\NexSync\backend\src\NexSync.Domain\obj\Debug\net10.0\Ne
 C:\Users\farre\Downloads\NexSync\backend\src\NexSync.Domain\obj\Debug\net10.0\NexSync.Domain.AssemblyInfoInputs.cache
 C:\Users\farre\Downloads\NexSync\backend\src\NexSync.Domain\obj\Debug\net10.0\NexSync.Domain.AssemblyInfo.cs
 C:\Users\farre\Downloads\NexSync\backend\src\NexSync.Domain\obj\Debug\net10.0\NexSync.Domain.csproj.CoreCompileInputs.cache
+C:\Users\farre\Downloads\NexSync\backend\src\NexSync.Domain\obj\Debug\net10.0\NexSync.Domain.sourcelink.json
 C:\Users\farre\Downloads\NexSync\backend\src\NexSync.Domain\obj\Debug\net10.0\NexSync.Domain.dll
 C:\Users\farre\Downloads\NexSync\backend\src\NexSync.Domain\obj\Debug\net10.0\refint\NexSync.Domain.dll
 C:\Users\farre\Downloads\NexSync\backend\src\NexSync.Domain\obj\Debug\net10.0\NexSync.Domain.pdb
