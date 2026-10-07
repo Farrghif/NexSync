@@ -14,7 +14,7 @@ These hold across every section. Nothing below may violate them.
 - **Server `Sequence` is canonical ordering.** LWW = highest committed `Sequence`. `OccurredAt` is informational only, never used for conflict resolution. Device clocks are never trusted.
 - **Server entity IDs are canonical identity.** `RelativePath` is mutable location only. Rename/move updates the existing local entity.
 - **`ChangeLogs` is the source of synchronization truth**, not an audit log. Tombstones persist indefinitely in Phase 2.
-- **`X-Operation-Id` gives mutation idempotency**, persisted server-side. Duplicate-name 409s are not an idempotency mechanism.
+- **`X-Operation-Id` gives mutation idempotency**, persisted server-side with request fingerprint + original result payload. Duplicate-name 409s are not an idempotency mechanism.
 - **Local SQLite is durable client state.** In-memory-only sync state is forbidden.
 - **`LastPulledSequence` advances only after full batch applied.**
 - **Incremental pull is the normal path; manifest is repair/initial sync only.**
@@ -45,7 +45,7 @@ One row per user, the sequence source.
 | EntityId | UUID | NOT NULL |
 | Operation | VARCHAR(20) | NOT NULL, domain enum: `Created`, `Modified`, `Renamed`, `Moved`, `Deleted` |
 | Name | VARCHAR(255) | NULL |
-| FolderId | UUID | NULL |
+| ParentFolderId | UUID | NULL |
 | Hash | VARCHAR(64) | NULL |
 | Size | BIGINT | NULL |
 | ContentType | VARCHAR(100) | NULL |
@@ -61,10 +61,14 @@ Constraint: `UNIQUE (UserId, Sequence)` (also serves as the pull index — no re
 | OperationId | UUID | PK |
 | UserId | UUID | NOT NULL |
 | DeviceId | UUID | NOT NULL |
+| RequestFingerprint | VARCHAR(64) | NOT NULL (SHA-256 of canonical method+path+body relevant fields) |
 | ResultStatus | INT | NOT NULL (HTTP status of original result) |
+| ResultPayload | JSONB | NULL (original response body, for exact replay) |
 | EntityId | UUID | NULL |
 | Sequence | BIGINT | NULL (resulting ChangeLog sequence, if any) |
 | CreatedAt | TIMESTAMPTZ | NOT NULL |
+
+Replay rule: `OperationId` exists + `RequestFingerprint` matches → return stored `ResultStatus` + `ResultPayload` verbatim, no new mutation. Fingerprint mismatch → `400 OPERATION_ID_REUSE` (idempotency keys must not be recycled for different requests).
 
 ### 1.4 Sequence allocation (atomic, commit-ordered)
 
@@ -84,9 +88,11 @@ The row lock is held until commit, so allocation order = commit order. Rollback 
 
 ### 1.5 ChangeLog payload semantics (resulting state, not delta)
 
-- **Created / Modified:** `Name, FolderId, Hash, Size, ContentType` = new state.
-- **Renamed / Moved:** `Name, FolderId` = final state.
-- **Deleted:** `Name, FolderId` retained as tombstone metadata; `Hash/Size/ContentType` NULL.
+- **Created / Modified:** `Name, ParentFolderId, Hash, Size, ContentType` = new state.
+- **Renamed / Moved:** `Name, ParentFolderId` = final state.
+- **Deleted:** `Name, ParentFolderId` retained as tombstone metadata; `Hash/Size/ContentType` NULL.
+
+For `EntityType=File`, `ParentFolderId` = containing folder. For `EntityType=Folder`, `ParentFolderId` = containing parent folder (NULL = root); the folder's own identity is always `EntityId`.
 
 `EntityType`/`Operation` are domain enums validated in the application layer (stored as VARCHAR, never free-form).
 
@@ -100,7 +106,7 @@ Tombstones persist indefinitely in Phase 2. No cursor expiry (contract reserves 
 
 ### 2.1 Pull
 
-`GET /api/sync/pull?since={seq}&limit={n}` (default 500, min 1, max 500, clamped server-side).
+`GET /api/sync/pull?since={seq}&until={highWater}&limit={n}` (default limit 500, min 1, max 500, clamped server-side; `until` required — run's high-water boundary captured at run start).
 
 ```json
 {
@@ -111,7 +117,7 @@ Tombstones persist indefinitely in Phase 2. No cursor expiry (contract reserves 
       "entityId": "…",
       "operation": "Modified",
       "name": "home.dart",
-      "folderId": "…",
+      "parentFolderId": "…",
       "hash": "…",
       "size": 1234,
       "contentType": "text/plain",
@@ -120,16 +126,19 @@ Tombstones persist indefinitely in Phase 2. No cursor expiry (contract reserves 
     }
   ],
   "nextCursor": 104,
-  "hasMore": true
+  "hasMore": true,
+  "highWaterCursor": 120
 }
 ```
 
 Rules:
 
-- Query: `WHERE UserId=? AND Sequence>? ORDER BY Sequence ASC LIMIT n`.
+- Query: `WHERE UserId=? AND Sequence>? AND Sequence<=? ORDER BY Sequence ASC LIMIT n`.
+- `highWaterCursor` echoes the run boundary (aids debugging/telemetry).
 - Empty result → `nextCursor = since`; else `nextCursor` = highest returned `Sequence`.
+- `hasMore` means more changes exist **up to `until`**, never beyond it. Changes committed after run start belong to the next coalesced run.
 - Client persists the cursor **only after ALL received changes applied**. Partial apply must not advance the cursor; re-pull repeats safely.
-- Loop while `hasMore=true` within a bounded run (see §5.4).
+- Loop while `hasMore=true` within the run's `[since, until]` window (see §5.4).
 
 ### 2.2 Push (existing Phase 1 endpoints, extended)
 
@@ -141,8 +150,10 @@ No parallel `/api/sync/push-*` endpoints. Desktop uses existing File/Folder muta
 Server flow per mutation:
 
 ```text
-X-Operation-Id seen before? → YES: return original result, no new mutation
-  → NO: mutate + ChangeLog + ProcessedOperations in ONE transaction
+X-Operation-Id seen before?
+  → YES + fingerprint matches: return stored ResultStatus + ResultPayload, no new mutation
+  → YES + fingerprint differs: 400 OPERATION_ID_REUSE
+  → NO: mutate + ChangeLog + ProcessedOperations (with ResultPayload) in ONE transaction
 ```
 
 File upload keeps the Phase 1 streaming/temp-file/hash pipeline; storage finalize happens before the DB transaction, with orphan cleanup on DB failure.
@@ -150,6 +161,15 @@ File upload keeps the Phase 1 streaming/temp-file/hash pipeline; storage finaliz
 ### 2.3 Manifest (repair / first sync)
 
 `GET /api/sync/manifest` returns full folders + files (+hashes) **plus `snapshotCursor`**: the highest committed ChangeLog sequence as of one consistent DB snapshot (MVCC read). Client applies manifest, sets cursor = `snapshotCursor`, then pulls `since=snapshotCursor` so concurrent changes are not lost.
+
+### 2.4 Initial sync policy (non-empty local folder)
+
+When the user picks a local sync root that already contains files, the desktop MUST NOT silently delete or silently upload. At setup the app requires an explicit choice:
+
+- **(Recommended) Empty-folder setup:** user picks/creates an empty folder; first sync = manifest apply.
+- **Import existing files:** user explicitly opts in; each pre-existing local file/folder is enqueued as a fresh `Create` operation (new `OperationId`), uploaded in dependency order. Local files have no server sequence, so LWW does not apply — import is additive. Name collisions with server state resolve as §5.1 409s (conflict copy, never silent overwrite).
+
+No third behavior exists. The implementation plan must surface this choice in the setup UI; guessing is forbidden.
 
 ---
 
@@ -171,7 +191,9 @@ File upload keeps the Phase 1 streaming/temp-file/hash pipeline; storage finaliz
 
 ### 3.2 Registration
 
-`POST /api/devices { name, platform }` — JWT only, no `X-Device-Id`, with `X-Operation-Id` for retry idempotency. Returns `deviceId`. This is when a UUID becomes legitimate. Web clients register too (`"Chrome - Windows" / Web`) and persist the ID in the browser.
+`POST /api/devices { name, platform }` — JWT only, no `X-Device-Id`, with `X-Operation-Id` for retry idempotency. Returns `deviceId`. This is when a UUID becomes legitimate.
+
+**Web is a first-class device.** The Phase 1 React client must be updated in Phase 2: after login, register a `Web` device (`"Chrome – Windows"`-style name), persist the `deviceId` in the browser, and send `X-Device-Id` (+ `X-Operation-Id` for mutations) on every mutation/sync request. Without this, web-made changes carry `OriginDeviceId = NULL` and are indistinguishable from legacy events — breaking desktop skip-self logic and change attribution.
 
 ### 3.3 Request validation
 
@@ -257,7 +279,7 @@ One `SyncCoordinator`: watcher/timer/Sync-Now only signal; concurrent runs coale
 
 ### 5.2 Pull
 
-`GET /api/sync/pull?since=cursor`, loop `hasMore` within the run's high-water boundary. Apply per change: download → temp file → verify hash → atomic replace (suppression active) → update local DB by server ID → after **all** succeed, persist `nextCursor`. Crash before persist → re-pull repeats. Crash mid-file → temp discarded.
+`GET /api/sync/pull?since=cursor&until=highWater`, loop `hasMore` strictly inside `[cursor, highWater]`. Apply per change: download → temp file → verify hash → atomic replace (suppression active) → update local DB by server ID → after **all** succeed, persist `nextCursor`. Crash before persist → re-pull repeats. Crash mid-file → temp discarded.
 
 ### 5.3 Remote delete wins — safely
 
@@ -287,4 +309,6 @@ Offline editing UX beyond queueing, conflict-resolution UI, versioning history, 
 6. Remote delete preserves unpushed local data in Recovery.
 7. Watcher overflow triggers manifest reconcile, not silent divergence.
 8. Crash at any point (mid-push, mid-pull, pre-cursor-persist, mid-token-rotation) recovers to correct state on restart.
-9. Integration tests cover: cursor ordering, tombstones, idempotent retry, 403 revoked, 409 preservation, recovery path, bounded runs.
+9. Integration tests cover: cursor ordering, `until`-bounded pulls, tombstones, idempotent retry with exact replay, fingerprint-mismatch rejection, 403 revoked, 409 preservation, recovery path, bounded runs.
+10. Web client registers a device and sends `X-Device-Id` + `X-Operation-Id`; web-made changes carry real `OriginDeviceId`.
+11. Non-empty local folder setup forces explicit empty/import choice; no silent delete or silent upload.
