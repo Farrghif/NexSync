@@ -22,6 +22,8 @@ public class ErrorHandlingMiddleware(RequestDelegate next, ILogger<ErrorHandling
         {
             NexSync.Domain.Exceptions.UnauthorizedAccessException => (HttpStatusCode.Unauthorized, "UNAUTHORIZED", "Unauthorized"),
             ForbiddenException => (HttpStatusCode.Forbidden, "FORBIDDEN", "Forbidden"),
+            NotFoundException => (HttpStatusCode.NotFound, "NOT_FOUND", "Not found"),
+            OperationIdReuseException => (HttpStatusCode.BadRequest, "OPERATION_ID_REUSE", "Operation ID already used for a different request"),
             ConflictException => (HttpStatusCode.Conflict, "CONFLICT", "Conflict"),
             FileNameInvalidException => (HttpStatusCode.BadRequest, "INVALID_NAME", "Invalid name"),
             DomainException => (HttpStatusCode.BadRequest, "DOMAIN_ERROR", "Bad request"),

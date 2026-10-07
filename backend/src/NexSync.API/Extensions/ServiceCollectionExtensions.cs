@@ -17,6 +17,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IFolderRepository, FolderRepository>();
         services.AddScoped<IFileRepository, FileRepository>();
         services.AddScoped<IRefreshTokenRepository, RefreshTokenRepository>();
+        services.AddScoped<IDeviceRepository, DeviceRepository>();
         services.AddScoped<IStorageService, LocalStorageService>();
         return services;
     }
@@ -29,6 +30,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<IFolderService, FolderService>();
         services.AddScoped<IFileService, FileService>();
+        services.AddScoped<IDeviceService, DeviceService>();
         return services;
     }
 }

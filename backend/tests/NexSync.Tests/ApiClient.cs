@@ -90,6 +90,22 @@ public sealed class ApiClient(HttpClient http)
         return res;
     }
 
+    public async Task<HttpResponseMessage> SendRawAsync(HttpRequestMessage req)
+    {
+        ApplyAuth(req);
+        var res = await _http.SendAsync(req);
+        var cookie = ExtractRefreshCookie(res);
+        if (cookie is not null) RefreshCookie = cookie;
+        return res;
+    }
+
+    public static async Task<JsonDocument?> ParseAsync(HttpResponseMessage res)
+    {
+        var body = await res.Content.ReadAsStringAsync();
+        if (body.Length == 0) return null;
+        try { return JsonDocument.Parse(body); } catch { return null; }
+    }
+
     public async Task<(HttpResponseMessage, JsonDocument?)> GetAsync(string url)
         => await SendAsync(new HttpRequestMessage(HttpMethod.Get, url));
 

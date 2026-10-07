@@ -40,3 +40,10 @@ public interface IRefreshTokenRepository : IRepository<RefreshToken>
     Task RevokeTokenFamilyAsync(Guid tokenId);
     Task<IEnumerable<RefreshToken>> GetActiveTokensByUserAsync(Guid userId);
 }
+
+public interface IDeviceRepository : IRepository<Device>
+{
+    Task<(Device Device, bool Replayed)> RegisterIdempotentAsync(Guid userId, string name, DevicePlatform platform, Guid operationId);
+    Task<IReadOnlyList<Device>> GetByUserAsync(Guid userId);
+    Task<Device?> GetOwnedAsync(Guid userId, Guid deviceId);
+}
