@@ -93,7 +93,6 @@ public sealed class IdempotencyTests
         req1.Headers.Add("X-Operation-Id", opId.ToString());
         var res1 = await _client.SendRawAsync(req1);
         var payload1 = await res1.Content.ReadAsStringAsync();
-        await System.IO.File.WriteAllTextAsync("C:\\Temp\\status1.txt", res1.StatusCode.ToString());
 
         var req2 = new HttpRequestMessage(HttpMethod.Post, "/api/folders") { Content = JsonContent.Create(body) };
         req2.Headers.Add("X-Operation-Id", opId.ToString());
@@ -146,15 +145,54 @@ public sealed class IdempotencyTests
         {
             var req = new HttpRequestMessage(HttpMethod.Post, "/api/folders") { Content = JsonContent.Create(body) };
             req.Headers.Add("X-Operation-Id", opId.ToString());
-            return await _client.SendRawAsync(req);
+            var res = await _client.SendRawAsync(req);
+            var doc = await ApiClient.ParseAsync(res);
+            return (res.StatusCode, Id: doc?.RootElement.GetProperty("id").GetGuid());
         });
         var results = await Task.WhenAll(tasks);
 
-        Assert.IsTrue(results.Count(r => r.StatusCode == HttpStatusCode.Created) >= 1);
-        Assert.IsTrue(results.All(r => r.StatusCode is HttpStatusCode.Created or HttpStatusCode.BadRequest));
+        Assert.IsTrue(results.All(r => r.StatusCode == HttpStatusCode.Created),
+            "Every concurrent retry must replay Created, never 400 for identical fingerprint.");
+        var distinctIds = results.Select(r => r.Id).Distinct().ToList();
+        Assert.AreEqual(1, distinctIds.Count, "All concurrent responses must identify the SAME entity.");
         Assert.AreEqual(1, await FoldersNamedAsync(userId, "Concurrent"));
         Assert.AreEqual(1, (await ChangeLogsAsync(userId)).Count);
         Assert.AreEqual(1, await ProcessedCountAsync());
+    }
+
+    [TestMethod]
+    public async Task CrossUserOperationIdReuse_DoesNotReplay_Returns400()
+    {
+        var opId = Guid.NewGuid();
+        var body = new { name = "AliceOwns", parentFolderId = (Guid?)null };
+        var req1 = new HttpRequestMessage(HttpMethod.Post, "/api/folders") { Content = JsonContent.Create(body) };
+        req1.Headers.Add("X-Operation-Id", opId.ToString());
+        var res1 = await _client.SendRawAsync(req1);
+        Assert.AreEqual(HttpStatusCode.Created, res1.StatusCode);
+
+        var other = new ApiClient(_factory.CreateClient());
+        await other.RegisterAsync("crossuser@nexsync.dev", "password123", "Cross User");
+        var req2 = new HttpRequestMessage(HttpMethod.Post, "/api/folders") { Content = JsonContent.Create(body) };
+        req2.Headers.Add("X-Operation-Id", opId.ToString());
+        var res2 = await other.SendRawAsync(req2);
+        Assert.AreEqual(HttpStatusCode.BadRequest, res2.StatusCode);
+        var doc = await ApiClient.ParseAsync(res2);
+        Assert.AreEqual("OPERATION_ID_REUSE", doc!.RootElement.GetProperty("code").GetString());
+    }
+
+    [TestMethod]
+    public async Task GenuineNameConflict_DifferentOperationId_StillReturns409()
+    {
+        var body = new { name = "Clash", parentFolderId = (Guid?)null };
+        var req1 = new HttpRequestMessage(HttpMethod.Post, "/api/folders") { Content = JsonContent.Create(body) };
+        req1.Headers.Add("X-Operation-Id", Guid.NewGuid().ToString());
+        var res1 = await _client.SendRawAsync(req1);
+        Assert.AreEqual(HttpStatusCode.Created, res1.StatusCode);
+
+        var req2 = new HttpRequestMessage(HttpMethod.Post, "/api/folders") { Content = JsonContent.Create(body) };
+        req2.Headers.Add("X-Operation-Id", Guid.NewGuid().ToString());
+        var res2 = await _client.SendRawAsync(req2);
+        Assert.AreEqual(HttpStatusCode.Conflict, res2.StatusCode);
     }
 
     [TestMethod]

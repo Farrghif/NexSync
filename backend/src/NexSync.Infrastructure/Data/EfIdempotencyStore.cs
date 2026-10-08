@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using NexSync.Application.Interfaces;
 using NexSync.Domain.Entities;
 
@@ -7,7 +8,9 @@ public class EfIdempotencyStore(AppDbContext context) : IIdempotencyStore
 {
     public async Task<IdempotencyRecord?> FindAsync(Guid operationId, CancellationToken cancellationToken = default)
     {
-        var row = await context.ProcessedOperations.FindAsync([operationId], cancellationToken);
+        var row = await context.ProcessedOperations
+            .AsNoTracking()
+            .FirstOrDefaultAsync(p => p.OperationId == operationId, cancellationToken);
         return row is null
             ? null
             : new IdempotencyRecord(row.OperationId, row.UserId, row.DeviceId, row.RequestFingerprint,
