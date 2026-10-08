@@ -25,18 +25,18 @@ public interface IFolderService
 {
     Task<FolderContentsResponse> GetContentsAsync(Guid userId, Guid? parentId, int page, int pageSize);
     Task<FolderDto> GetByIdAsync(Guid userId, Guid folderId);
-    Task<FolderDto> CreateAsync(Guid userId, string name, Guid? parentFolderId, Guid? deviceId = null);
-    Task<FolderDto> UpdateAsync(Guid userId, Guid folderId, string name, Guid? parentFolderId, Guid? deviceId = null);
-    Task DeleteAsync(Guid userId, Guid folderId, Guid? deviceId = null);
+    Task<FolderDto> CreateAsync(Guid userId, string name, Guid? parentFolderId, Guid? deviceId = null, MutationContext? mutation = null);
+    Task<FolderDto> UpdateAsync(Guid userId, Guid folderId, string name, Guid? parentFolderId, Guid? deviceId = null, MutationContext? mutation = null);
+    Task DeleteAsync(Guid userId, Guid folderId, Guid? deviceId = null, MutationContext? mutation = null);
 }
 
 public interface IFileService
 {
-    Task<FileDto> UploadAsync(Guid userId, Stream fileStream, string fileName, string contentType, Guid? folderId, Guid? deviceId = null);
+    Task<FileDto> UploadAsync(Guid userId, Stream fileStream, string fileName, string contentType, Guid? folderId, Guid? deviceId = null, MutationContext? mutation = null);
     Task<FileDto> GetByIdAsync(Guid userId, Guid fileId);
     Task<Stream> DownloadAsync(Guid userId, Guid fileId);
-    Task<FileDto> UpdateAsync(Guid userId, Guid fileId, string name, Guid? folderId, Guid? deviceId = null);
-    Task DeleteAsync(Guid userId, Guid fileId, Guid? deviceId = null);
+    Task<FileDto> UpdateAsync(Guid userId, Guid fileId, string name, Guid? folderId, Guid? deviceId = null, MutationContext? mutation = null);
+    Task DeleteAsync(Guid userId, Guid fileId, Guid? deviceId = null, MutationContext? mutation = null);
 }
 
 public interface IStorageService

@@ -4,13 +4,14 @@ using Microsoft.AspNetCore.Mvc;
 using NexSync.Application.DTOs;
 using NexSync.Application.Interfaces;
 using NexSync.Domain.Exceptions;
+using NexSync.Domain.Sync;
 
 namespace NexSync.API.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
 [Authorize]
-public class FilesController(IFileService files, IDeviceService devices) : ControllerBase
+public class FilesController(IFileService files, IDeviceService devices, IIdempotencyStore idempotency) : ControllerBase
 {
     private Guid UserId => Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
 
@@ -28,8 +29,16 @@ public class FilesController(IFileService files, IDeviceService devices) : Contr
     public async Task<IActionResult> Upload(IFormFile file, [FromQuery] Guid? folderId)
     {
         if (file is null || file.Length == 0) return BadRequest(new { message = "No file provided." });
+        var deviceId = await ResolveDeviceAsync();
+        MutationContext? mutation = null;
+        if (Request.Headers.TryGetValue("X-Operation-Id", out var rawOp))
+        {
+            if (!Guid.TryParse(rawOp.ToString(), out var opId))
+                throw new DomainException("X-Operation-Id header must be a valid UUID.");
+            mutation = new MutationContext(opId, string.Empty, StatusCodes.Status201Created);
+        }
         await using var stream = file.OpenReadStream();
-        var res = await files.UploadAsync(UserId, stream, file.FileName, file.ContentType, folderId, await ResolveDeviceAsync());
+        var res = await files.UploadAsync(UserId, stream, file.FileName, file.ContentType, folderId, deviceId, mutation);
         return CreatedAtAction(nameof(GetById), new { id = res.Id }, res);
     }
 
@@ -47,12 +56,33 @@ public class FilesController(IFileService files, IDeviceService devices) : Contr
 
     [HttpPut("{id:guid}")]
     public async Task<IActionResult> Update(Guid id, [FromBody] UpdateFileRequest req)
-        => Ok(await files.UpdateAsync(UserId, id, req.Name, req.FolderId, await ResolveDeviceAsync()));
+    {
+        var deviceId = await ResolveDeviceAsync();
+        var mutation = IdempotencyHelper.Parse(Request.Headers,
+            RequestFingerprint.ForMutation("PUT", $"/api/files/{id}",
+                ("name", req.Name), ("folderId", req.FolderId?.ToString())),
+            StatusCodes.Status200OK);
+        if (mutation is not null)
+        {
+            var replay = await IdempotencyHelper.ReplayIfSeenAsync(idempotency, UserId, mutation);
+            if (replay is not null) return replay;
+        }
+        return Ok(await files.UpdateAsync(UserId, id, req.Name, req.FolderId, deviceId, mutation));
+    }
 
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> Delete(Guid id)
     {
-        await files.DeleteAsync(UserId, id, await ResolveDeviceAsync());
+        var deviceId = await ResolveDeviceAsync();
+        var mutation = IdempotencyHelper.Parse(Request.Headers,
+            RequestFingerprint.ForMutation("DELETE", $"/api/files/{id}"),
+            StatusCodes.Status204NoContent);
+        if (mutation is not null)
+        {
+            var replay = await IdempotencyHelper.ReplayIfSeenAsync(idempotency, UserId, mutation);
+            if (replay is not null) return replay;
+        }
+        await files.DeleteAsync(UserId, id, deviceId, mutation);
         return NoContent();
     }
 }

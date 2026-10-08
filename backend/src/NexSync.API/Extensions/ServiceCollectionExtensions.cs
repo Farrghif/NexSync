@@ -22,6 +22,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ISyncSequenceAllocator, SyncSequenceAllocator>();
         services.AddScoped<ITransactionProvider, EfTransactionProvider>();
         services.AddScoped<ISyncChangeWriter, SyncChangeWriter>();
+        services.AddScoped<IIdempotencyStore, EfIdempotencyStore>();
         return services;
     }
 

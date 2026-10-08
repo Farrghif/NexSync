@@ -1,8 +1,10 @@
+using System.Text.Json;
 using NexSync.Application.DTOs;
 using NexSync.Application.Interfaces;
 using NexSync.Application.Validators;
 using NexSync.Domain.Entities;
 using NexSync.Domain.Exceptions;
+using NexSync.Domain.Sync;
 
 namespace NexSync.Application.Services;
 
@@ -11,8 +13,25 @@ public class FolderService(
     IFileRepository files,
     IStorageService storage,
     ITransactionProvider transactions,
-    ISyncChangeWriter changes) : IFolderService
+    ISyncChangeWriter changes,
+    IIdempotencyStore idempotency) : IFolderService
 {
+    private static readonly JsonSerializerOptions PayloadJson = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+
+    private static T ReplayOrThrow<T>(Guid userId, IdempotencyRecord record, string fingerprint)
+    {
+        if (record.UserId != userId || !string.Equals(record.RequestFingerprint, fingerprint, StringComparison.Ordinal))
+            throw new OperationIdReuseException("X-Operation-Id was already used for a different request.");
+        return JsonSerializer.Deserialize<T>(record.ResultPayload!, PayloadJson)
+            ?? throw new InvalidOperationException("Stored idempotency payload is corrupted.");
+    }
+
+    private static void EnsureOwned(IdempotencyRecord record, Guid userId, string fingerprint)
+    {
+        if (record.UserId != userId || !string.Equals(record.RequestFingerprint, fingerprint, StringComparison.Ordinal))
+            throw new OperationIdReuseException("X-Operation-Id was already used for a different request.");
+    }
+
     private static FolderDto Map(Folder f) => new(f.Id, f.Name, f.ParentFolderId, f.CreatedAt, f.UpdatedAt);
     private static FileDto MapFile(FileEntry f) => new(f.Id, f.Name, f.FolderId, f.Hash, f.Size, f.ContentType, f.CreatedAt, f.UpdatedAt);
 
@@ -48,7 +67,7 @@ public class FolderService(
         return Map(f);
     }
 
-    public async Task<FolderDto> CreateAsync(Guid userId, string name, Guid? parentFolderId, Guid? deviceId = null)
+    public async Task<FolderDto> CreateAsync(Guid userId, string name, Guid? parentFolderId, Guid? deviceId = null, MutationContext? mutation = null)
     {
         FileNameValidator.Validate(name);
         if (parentFolderId.HasValue)
@@ -59,6 +78,13 @@ public class FolderService(
         }
         if (await folders.NameExistsInParentAsync(userId, parentFolderId, name))
             throw new ConflictException("Folder name already exists.");
+        var fingerprint = mutation is null ? null : RequestFingerprint.ForMutation("POST", "/api/folders",
+            ("name", name), ("parentFolderId", parentFolderId?.ToString()));
+        if (mutation is not null)
+        {
+            var seen = await idempotency.FindAsync(mutation.OperationId);
+            if (seen is not null) return ReplayOrThrow<FolderDto>(userId, seen, fingerprint!);
+        }
         var folder = new Folder
         {
             Id = Guid.NewGuid(), Name = name, ParentFolderId = parentFolderId,
@@ -68,24 +94,42 @@ public class FolderService(
         try
         {
             await folders.StageAsync(folder);
-            await changes.WriteFolderChangeAsync(userId, folder.Id, SyncOperation.Created, name, parentFolderId, deviceId);
+            var change = await changes.WriteFolderChangeAsync(userId, folder.Id, SyncOperation.Created, name, parentFolderId, deviceId);
+            var dto = Map(folder);
+            if (mutation is not null)
+                await idempotency.StageAsync(mutation.OperationId, userId, deviceId ?? Guid.Empty, fingerprint!,
+                    mutation.SuccessStatus, JsonSerializer.Serialize(dto, PayloadJson), folder.Id, change.Sequence);
             await folders.SaveChangesAsync();
             await tx.CommitAsync();
+            return dto;
+        }
+        catch (Exception) when (mutation is not null)
+        {
+            await tx.RollbackAsync();
+            var raced = await idempotency.FindAsync(mutation.OperationId);
+            if (raced is not null) return ReplayOrThrow<FolderDto>(userId, raced, fingerprint!);
+            throw;
         }
         catch
         {
             await tx.RollbackAsync();
             throw;
         }
-        return Map(folder);
     }
 
-    public async Task<FolderDto> UpdateAsync(Guid userId, Guid folderId, string name, Guid? parentFolderId, Guid? deviceId = null)
+    public async Task<FolderDto> UpdateAsync(Guid userId, Guid folderId, string name, Guid? parentFolderId, Guid? deviceId = null, MutationContext? mutation = null)
     {
         FileNameValidator.Validate(name);
         var folder = await folders.GetByIdAsync(folderId);
         if (folder is null || folder.OwnerId != userId)
             throw new ForbiddenException("Access denied.");
+        var fingerprint = mutation is null ? null : RequestFingerprint.ForMutation("PUT", $"/api/folders/{folderId}",
+            ("name", name), ("parentFolderId", parentFolderId?.ToString()));
+        if (mutation is not null)
+        {
+            var seen = await idempotency.FindAsync(mutation.OperationId);
+            if (seen is not null) return ReplayOrThrow<FolderDto>(userId, seen, fingerprint!);
+        }
         if (folderId == parentFolderId)
             throw new ConflictException("Cannot move folder into itself.");
         if (parentFolderId.HasValue)
@@ -115,23 +159,44 @@ public class FolderService(
         try
         {
             folders.StageUpdate(folder);
-            await changes.WriteFolderChangeAsync(userId, folderId, op, name, parentFolderId, deviceId);
+            var change = await changes.WriteFolderChangeAsync(userId, folderId, op, name, parentFolderId, deviceId);
+            var dto = Map(folder);
+            if (mutation is not null)
+                await idempotency.StageAsync(mutation.OperationId, userId, deviceId ?? Guid.Empty, fingerprint!,
+                    mutation.SuccessStatus, JsonSerializer.Serialize(dto, PayloadJson), folderId, change.Sequence);
             await folders.SaveChangesAsync();
             await tx.CommitAsync();
+            return dto;
+        }
+        catch (Exception) when (mutation is not null)
+        {
+            await tx.RollbackAsync();
+            var raced = await idempotency.FindAsync(mutation.OperationId);
+            if (raced is not null) return ReplayOrThrow<FolderDto>(userId, raced, fingerprint!);
+            throw;
         }
         catch
         {
             await tx.RollbackAsync();
             throw;
         }
-        return Map(folder);
     }
 
-    public async Task DeleteAsync(Guid userId, Guid folderId, Guid? deviceId = null)
+    public async Task DeleteAsync(Guid userId, Guid folderId, Guid? deviceId = null, MutationContext? mutation = null)
     {
         var folder = await folders.GetByIdAsync(folderId);
         if (folder is null || folder.OwnerId != userId)
             throw new ForbiddenException("Access denied.");
+        var fingerprint = mutation is null ? null : RequestFingerprint.ForMutation("DELETE", $"/api/folders/{folderId}");
+        if (mutation is not null)
+        {
+            var seen = await idempotency.FindAsync(mutation.OperationId);
+            if (seen is not null)
+            {
+                EnsureOwned(seen, userId, fingerprint!);
+                return;
+            }
+        }
         var descendants = (await folders.GetDescendantsAsync(folderId)).ToList();
         var allIds = new[] { folderId }.Concat(descendants.Select(d => d.Id)).ToList();
         var byId = new Dictionary<Guid, Folder> { [folderId] = folder };
@@ -146,6 +211,7 @@ public class FolderService(
         await using var tx = await transactions.BeginTransactionAsync();
         try
         {
+            long? rootSequence = null;
             foreach (var (id, name, parentId, _) in fileTombstones)
             {
                 var f = await files.GetByIdAsync(id);
@@ -156,10 +222,25 @@ public class FolderService(
             {
                 var f = byId[fid];
                 folders.StageDelete(f);
-                await changes.WriteFolderChangeAsync(userId, fid, SyncOperation.Deleted, f.Name, f.ParentFolderId, deviceId);
+                var change = await changes.WriteFolderChangeAsync(userId, fid, SyncOperation.Deleted, f.Name, f.ParentFolderId, deviceId);
+                if (fid == folderId) rootSequence = change.Sequence;
             }
+            if (mutation is not null)
+                await idempotency.StageAsync(mutation.OperationId, userId, deviceId ?? Guid.Empty, fingerprint!,
+                    mutation.SuccessStatus, string.Empty, folderId, rootSequence);
             await folders.SaveChangesAsync();
             await tx.CommitAsync();
+        }
+        catch (Exception) when (mutation is not null)
+        {
+            await tx.RollbackAsync();
+            var raced = await idempotency.FindAsync(mutation.OperationId);
+            if (raced is not null)
+            {
+                EnsureOwned(raced, userId, fingerprint!);
+                return;
+            }
+            throw;
         }
         catch
         {
@@ -173,3 +254,4 @@ public class FolderService(
         }
     }
 }
+

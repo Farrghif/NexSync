@@ -200,7 +200,8 @@ public sealed class MutationChangeLogTests
             sp.GetRequiredService<NexSync.Application.Interfaces.ITransactionProvider>(),
             new NexSync.Infrastructure.Data.SyncChangeWriter(
                 sp.GetRequiredService<NexSync.Infrastructure.Data.AppDbContext>(),
-                new ThrowingAllocator()));
+                new ThrowingAllocator()),
+            sp.GetRequiredService<NexSync.Application.Interfaces.IIdempotencyStore>());
         await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             async () => await folders.CreateAsync(userId, "Doomed", null));
         await using var verify = _factory.Services.CreateAsyncScope();
