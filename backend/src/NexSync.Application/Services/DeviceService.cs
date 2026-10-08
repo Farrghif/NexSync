@@ -33,4 +33,12 @@ public class DeviceService(IDeviceRepository devices) : IDeviceService
             await devices.UpdateAsync(d);
         }
     }
+
+    public async Task<Guid> ValidateAsync(Guid userId, Guid deviceId)
+    {
+        var d = await devices.GetOwnedAsync(userId, deviceId);
+        if (d is null || d.RevokedAt is not null)
+            throw new ForbiddenException("Device is invalid, revoked, or not owned by user.");
+        return d.Id;
+    }
 }
