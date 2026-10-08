@@ -20,6 +20,8 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IDeviceRepository, DeviceRepository>();
         services.AddScoped<IStorageService, LocalStorageService>();
         services.AddScoped<ISyncSequenceAllocator, SyncSequenceAllocator>();
+        services.AddScoped<ITransactionProvider, EfTransactionProvider>();
+        services.AddScoped<ISyncChangeWriter, SyncChangeWriter>();
         return services;
     }
 

@@ -15,6 +15,9 @@ public class Repository<T>(AppDbContext context) : IRepository<T> where T : clas
     public async Task UpdateAsync(T entity) { _context.Set<T>().Update(entity); await SaveChangesAsync(); }
     public async Task DeleteAsync(T entity) { _context.Set<T>().Remove(entity); await SaveChangesAsync(); }
     public async Task SaveChangesAsync() => await _context.SaveChangesAsync();
+    public async Task StageAsync(T entity) => await _context.Set<T>().AddAsync(entity);
+    public void StageUpdate(T entity) => _context.Set<T>().Update(entity);
+    public void StageDelete(T entity) => _context.Set<T>().Remove(entity);
 }
 
 public class UserRepository(AppDbContext context) : Repository<User>(context), IUserRepository

@@ -3,15 +3,25 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using NexSync.Application.DTOs;
 using NexSync.Application.Interfaces;
+using NexSync.Domain.Exceptions;
 
 namespace NexSync.API.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
 [Authorize]
-public class FilesController(IFileService files) : ControllerBase
+public class FilesController(IFileService files, IDeviceService devices) : ControllerBase
 {
     private Guid UserId => Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+
+    private async Task<Guid?> ResolveDeviceAsync()
+    {
+        if (!Request.Headers.TryGetValue("X-Device-Id", out var raw)) return null;
+        if (!Guid.TryParse(raw.ToString(), out var deviceId))
+            throw new DomainException("X-Device-Id header must be a valid UUID.");
+        await devices.ValidateAsync(UserId, deviceId);
+        return deviceId;
+    }
 
     [HttpPost("upload")]
     [RequestSizeLimit(104_857_600)]
@@ -19,7 +29,7 @@ public class FilesController(IFileService files) : ControllerBase
     {
         if (file is null || file.Length == 0) return BadRequest(new { message = "No file provided." });
         await using var stream = file.OpenReadStream();
-        var res = await files.UploadAsync(UserId, stream, file.FileName, file.ContentType, folderId);
+        var res = await files.UploadAsync(UserId, stream, file.FileName, file.ContentType, folderId, await ResolveDeviceAsync());
         return CreatedAtAction(nameof(GetById), new { id = res.Id }, res);
     }
 
@@ -37,12 +47,12 @@ public class FilesController(IFileService files) : ControllerBase
 
     [HttpPut("{id:guid}")]
     public async Task<IActionResult> Update(Guid id, [FromBody] UpdateFileRequest req)
-        => Ok(await files.UpdateAsync(UserId, id, req.Name, req.FolderId));
+        => Ok(await files.UpdateAsync(UserId, id, req.Name, req.FolderId, await ResolveDeviceAsync()));
 
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> Delete(Guid id)
     {
-        await files.DeleteAsync(UserId, id);
+        await files.DeleteAsync(UserId, id, await ResolveDeviceAsync());
         return NoContent();
     }
 }

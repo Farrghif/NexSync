@@ -10,6 +10,9 @@ public interface IRepository<T> where T : class
     Task UpdateAsync(T entity);
     Task DeleteAsync(T entity);
     Task SaveChangesAsync();
+    Task StageAsync(T entity);
+    void StageUpdate(T entity);
+    void StageDelete(T entity);
 }
 
 public interface IUserRepository : IRepository<User>

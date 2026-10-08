@@ -9,11 +9,13 @@ namespace NexSync.Application.Services;
 public class FileService(
     IFileRepository files,
     IFolderRepository folders,
-    IStorageService storage) : IFileService
+    IStorageService storage,
+    ITransactionProvider transactions,
+    ISyncChangeWriter changes) : IFileService
 {
     private static FileDto Map(FileEntry f) => new(f.Id, f.Name, f.FolderId, f.Hash, f.Size, f.ContentType, f.CreatedAt, f.UpdatedAt);
 
-    public async Task<FileDto> UploadAsync(Guid userId, Stream fileStream, string fileName, string contentType, Guid? folderId)
+    public async Task<FileDto> UploadAsync(Guid userId, Stream fileStream, string fileName, string contentType, Guid? folderId, Guid? deviceId = null)
     {
         FileNameValidator.Validate(fileName);
         if (folderId.HasValue)
@@ -31,12 +33,17 @@ public class FileService(
             Hash = hash, Size = size, ContentType = contentType, StoragePath = storagePath,
             CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow
         };
+        await using var tx = await transactions.BeginTransactionAsync();
         try
         {
-            await files.AddAsync(entry);
+            await files.StageAsync(entry);
+            await changes.WriteFileChangeAsync(userId, entry.Id, SyncOperation.Created, fileName, folderId, hash, size, contentType, deviceId);
+            await files.SaveChangesAsync();
+            await tx.CommitAsync();
         }
         catch
         {
+            await tx.RollbackAsync();
             var refs = await files.GetCountByStoragePathAsync(storagePath);
             if (refs == 0) await storage.DeleteFileAsync(storagePath);
             throw;
@@ -60,7 +67,7 @@ public class FileService(
         return await storage.GetFileAsync(f.StoragePath);
     }
 
-    public async Task<FileDto> UpdateAsync(Guid userId, Guid fileId, string name, Guid? folderId)
+    public async Task<FileDto> UpdateAsync(Guid userId, Guid fileId, string name, Guid? folderId, Guid? deviceId = null)
     {
         FileNameValidator.Validate(name);
         var f = await files.GetByIdAsync(fileId);
@@ -72,28 +79,57 @@ public class FileService(
             if (folder is null || folder.OwnerId != userId)
                 throw new ForbiddenException("Access denied.");
         }
-        var moved = f.FolderId != folderId || !string.Equals(f.Name, name, StringComparison.OrdinalIgnoreCase);
+        var nameChanged = !string.Equals(f.Name, name, StringComparison.OrdinalIgnoreCase);
+        var parentChanged = f.FolderId != folderId;
+        var moved = nameChanged || parentChanged;
         if (moved && await files.NameExistsInFolderAsync(userId, folderId, name))
         {
             var conflict = (await files.GetByFolderAsync(userId, folderId, 1, int.MaxValue))
                 .Any(x => x.Id != fileId && string.Equals(x.Name, name, StringComparison.OrdinalIgnoreCase));
             if (conflict) throw new ConflictException("File name already exists in target location.");
         }
+        var op = parentChanged ? SyncOperation.Moved
+            : nameChanged ? SyncOperation.Renamed
+            : SyncOperation.Modified;
         f.Name = name;
         f.FolderId = folderId;
         f.UpdatedAt = DateTime.UtcNow;
-        await files.UpdateAsync(f);
+        await using var tx = await transactions.BeginTransactionAsync();
+        try
+        {
+            files.StageUpdate(f);
+            await changes.WriteFileChangeAsync(userId, fileId, op, name, folderId, f.Hash, f.Size, f.ContentType, deviceId);
+            await files.SaveChangesAsync();
+            await tx.CommitAsync();
+        }
+        catch
+        {
+            await tx.RollbackAsync();
+            throw;
+        }
         return Map(f);
     }
 
-    public async Task DeleteAsync(Guid userId, Guid fileId)
+    public async Task DeleteAsync(Guid userId, Guid fileId, Guid? deviceId = null)
     {
         var f = await files.GetByIdAsync(fileId);
         if (f is null || f.OwnerId != userId)
             throw new ForbiddenException("Access denied.");
-        var refs = await files.GetCountByStoragePathAsync(f.StoragePath);
-        if (refs <= 1) await storage.DeleteFileAsync(f.StoragePath);
-        await files.DeleteAsync(f);
+        var tombstone = (f.Id, f.Name, f.FolderId, f.StoragePath);
+        await using var tx = await transactions.BeginTransactionAsync();
+        try
+        {
+            files.StageDelete(f);
+            await changes.WriteFileChangeAsync(userId, tombstone.Id, SyncOperation.Deleted, tombstone.Name, tombstone.FolderId, originDeviceId: deviceId);
+            await files.SaveChangesAsync();
+            await tx.CommitAsync();
+        }
+        catch
+        {
+            await tx.RollbackAsync();
+            throw;
+        }
+        var refs = await files.GetCountByStoragePathAsync(tombstone.StoragePath);
+        if (refs == 0) await storage.DeleteFileAsync(tombstone.StoragePath);
     }
 }
-
