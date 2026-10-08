@@ -124,7 +124,10 @@ public sealed class MutationChangeLogTests
         Assert.AreEqual(SyncOperation.Deleted, tomb.Operation);
         Assert.AreEqual(SyncEntityType.File, tomb.EntityType);
         Assert.AreEqual("note.txt", tomb.Name);
+        Assert.IsNull(tomb.ParentFolderId);
         Assert.IsNull(tomb.Hash);
+        Assert.IsNull(tomb.Size);
+        Assert.IsNull(tomb.ContentType);
         await using var scope = _factory.Services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         Assert.IsNull(await db.Files.FindAsync(id));
@@ -149,6 +152,23 @@ public sealed class MutationChangeLogTests
         Assert.IsTrue(tombstones.All(t => t.Operation == SyncOperation.Deleted));
         var folderTombs = tombstones.Where(t => t.EntityType == SyncEntityType.Folder).Select(t => t.EntityId).ToHashSet();
         Assert.IsTrue(folderTombs.SetEquals([pId, cId]));
+        foreach (var t in tombstones)
+        {
+            Assert.IsNotNull(t.Name);
+            Assert.IsNull(t.Hash);
+            Assert.IsNull(t.Size);
+            Assert.IsNull(t.ContentType);
+        }
+        var byEntity = tombstones.ToDictionary(t => t.EntityId);
+        Assert.IsNull(byEntity[pId].ParentFolderId);
+        Assert.AreEqual(pId, byEntity[cId].ParentFolderId);
+        var fileTombs = tombstones.Where(t => t.EntityType == SyncEntityType.File).ToList();
+        Assert.AreEqual(2, fileTombs.Count);
+        Assert.IsTrue(fileTombs.Any(t => t.Name == "f1.bin" && t.ParentFolderId == pId));
+        Assert.IsTrue(fileTombs.Any(t => t.Name == "f2.bin" && t.ParentFolderId == cId));
+        var folderSeqs = tombstones.Where(t => t.EntityType == SyncEntityType.Folder).Select(t => t.Sequence).ToList();
+        var fileSeqs = tombstones.Where(t => t.EntityType == SyncEntityType.File).Select(t => t.Sequence).ToList();
+        Assert.IsTrue(fileSeqs.Max() < folderSeqs.Min());
     }
 
     [TestMethod]
@@ -159,6 +179,34 @@ public sealed class MutationChangeLogTests
         Assert.AreEqual(HttpStatusCode.BadRequest, res.StatusCode);
         var changes = await ChangeLogsAsync(userId);
         Assert.AreEqual(0, changes.Count);
+    }
+
+    private sealed class ThrowingAllocator : NexSync.Application.Interfaces.ISyncSequenceAllocator
+    {
+        public Task<long> AllocateAsync(Guid userId, CancellationToken cancellationToken = default)
+            => throw new InvalidOperationException("Simulated allocator failure mid-transaction.");
+    }
+
+    [TestMethod]
+    public async Task MidTransactionFailure_WritesNeitherEntityNorChange()
+    {
+        var userId = UserIdFromToken(_client);
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var sp = scope.ServiceProvider;
+        var folders = new NexSync.Application.Services.FolderService(
+            sp.GetRequiredService<NexSync.Application.Interfaces.IFolderRepository>(),
+            sp.GetRequiredService<NexSync.Application.Interfaces.IFileRepository>(),
+            sp.GetRequiredService<NexSync.Application.Interfaces.IStorageService>(),
+            sp.GetRequiredService<NexSync.Application.Interfaces.ITransactionProvider>(),
+            new NexSync.Infrastructure.Data.SyncChangeWriter(
+                sp.GetRequiredService<NexSync.Infrastructure.Data.AppDbContext>(),
+                new ThrowingAllocator()));
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(
+            async () => await folders.CreateAsync(userId, "Doomed", null));
+        await using var verify = _factory.Services.CreateAsyncScope();
+        var db = verify.ServiceProvider.GetRequiredService<NexSync.Infrastructure.Data.AppDbContext>();
+        Assert.AreEqual(0, await db.Folders.CountAsync(f => f.OwnerId == userId));
+        Assert.AreEqual(0, (await ChangeLogsAsync(userId)).Count);
     }
 
     [TestMethod]
