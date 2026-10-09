@@ -23,6 +23,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ITransactionProvider, EfTransactionProvider>();
         services.AddScoped<ISyncChangeWriter, SyncChangeWriter>();
         services.AddScoped<IIdempotencyStore, EfIdempotencyStore>();
+        services.AddScoped<ISyncService, SyncService>();
         return services;
     }
 

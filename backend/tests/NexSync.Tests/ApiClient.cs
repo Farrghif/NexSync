@@ -9,6 +9,13 @@ public sealed class ApiClient(HttpClient http)
     private readonly HttpClient _http = http;
     public string? AccessToken { get; private set; }
     public string? RefreshCookie { get; set; }
+    public Guid? DeviceId { get; set; }
+
+    private void ApplyDevice(HttpRequestMessage req)
+    {
+        if (DeviceId.HasValue)
+            req.Headers.Add("X-Device-Id", DeviceId.Value.ToString());
+    }
 
     private static readonly JsonSerializerOptions Json = new() { PropertyNameCaseInsensitive = true };
 
@@ -36,6 +43,7 @@ public sealed class ApiClient(HttpClient http)
     private async Task<(HttpResponseMessage Res, JsonDocument? Doc)> SendAsync(HttpRequestMessage req)
     {
         ApplyAuth(req);
+        ApplyDevice(req);
         var res = await _http.SendAsync(req);
         JsonDocument? doc = null;
         var body = await res.Content.ReadAsStringAsync();
@@ -93,6 +101,7 @@ public sealed class ApiClient(HttpClient http)
     public async Task<HttpResponseMessage> SendRawAsync(HttpRequestMessage req)
     {
         ApplyAuth(req);
+        ApplyDevice(req);
         var res = await _http.SendAsync(req);
         var cookie = ExtractRefreshCookie(res);
         if (cookie is not null) RefreshCookie = cookie;
