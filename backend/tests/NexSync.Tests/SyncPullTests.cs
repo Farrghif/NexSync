@@ -169,6 +169,65 @@ public sealed class SyncPullTests
     }
 
     [TestMethod]
+    public async Task Cursor_EmptyHistory_ReturnsZero()
+    {
+        var (res, doc) = await _alice.GetAsync("/api/sync/cursor");
+        Assert.AreEqual(HttpStatusCode.OK, res.StatusCode);
+        Assert.AreEqual(0L, doc!.RootElement.GetProperty("highWaterCursor").GetInt64());
+    }
+
+    [TestMethod]
+    public async Task Pull_SecondPage_ContinuesFromNextCursor()
+    {
+        for (var i = 0; i < 5; i++)
+            await _alice.PostJsonAsync("/api/folders", new { name = $"P{i}", parentFolderId = (Guid?)null });
+
+        var (_, p1) = await _alice.GetAsync("/api/sync/pull?since=0&until=5&limit=2");
+        var cursor = p1!.RootElement.GetProperty("nextCursor").GetInt64();
+        Assert.AreEqual(2L, cursor);
+        Assert.IsTrue(p1.RootElement.GetProperty("hasMore").GetBoolean());
+
+        var (res, p2) = await _alice.GetAsync($"/api/sync/pull?since={cursor}&until=5&limit=2");
+        Assert.AreEqual(HttpStatusCode.OK, res.StatusCode);
+        var seqs = p2!.RootElement.GetProperty("changes").EnumerateArray().Select(c => c.GetProperty("sequence").GetInt64()).ToList();
+        CollectionAssert.AreEqual(new List<long> { 3, 4 }, seqs);
+        Assert.AreEqual(4L, p2.RootElement.GetProperty("nextCursor").GetInt64());
+        Assert.IsTrue(p2.RootElement.GetProperty("hasMore").GetBoolean());
+
+        var (_, p3) = await _alice.GetAsync("/api/sync/pull?since=4&until=5&limit=2");
+        Assert.AreEqual(1, p3!.RootElement.GetProperty("changes").GetArrayLength());
+        Assert.AreEqual(5L, p3.RootElement.GetProperty("nextCursor").GetInt64());
+        Assert.IsFalse(p3.RootElement.GetProperty("hasMore").GetBoolean());
+    }
+
+    [TestMethod]
+    public async Task Pull_InvalidDeviceUuid_Returns400()
+    {
+        var req = new HttpRequestMessage(HttpMethod.Get, "/api/sync/pull?since=0&until=10&limit=10");
+        req.Headers.Add("X-Device-Id", "not-a-uuid");
+        var res = await _alice.SendRawAsync(req);
+        Assert.AreEqual(HttpStatusCode.BadRequest, res.StatusCode);
+    }
+
+    [TestMethod]
+    public async Task Pull_ForeignDevice_Returns403()
+    {
+        var other = new ApiClient(_factory.CreateClient());
+        await other.RegisterAsync("sync-foreign@nexsync.dev", "password123", "Foreign");
+        var foreignId = await RegisterDeviceAsync(other, "Foreign Dev");
+        _alice.DeviceId = foreignId;
+        var (res, _) = await _alice.GetAsync("/api/sync/pull?since=0&until=10&limit=10");
+        Assert.AreEqual(HttpStatusCode.Forbidden, res.StatusCode);
+    }
+
+    [TestMethod]
+    public async Task Pull_ZeroLimit_Returns400()
+    {
+        var (res, _) = await _alice.GetAsync("/api/sync/pull?since=0&until=10&limit=0");
+        Assert.AreEqual(HttpStatusCode.BadRequest, res.StatusCode);
+    }
+
+    [TestMethod]
     public async Task Pull_MissingDevice_Returns400()
     {
         var naked = new ApiClient(_factory.CreateClient());

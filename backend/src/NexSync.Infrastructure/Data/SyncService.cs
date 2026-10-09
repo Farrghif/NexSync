@@ -16,7 +16,9 @@ public class SyncService(AppDbContext context) : ISyncService
             throw new DomainException("Query parameter 'since' must be >= 0.");
         if (until < since)
             throw new DomainException("Query parameter 'until' must be >= 'since'.");
-        limit = Math.Clamp(limit <= 0 ? DefaultLimit : limit, 1, MaxLimit);
+        if (limit <= 0)
+            throw new DomainException("Query parameter 'limit' must be >= 1.");
+        limit = Math.Min(limit, MaxLimit);
 
         var rows = await context.ChangeLogs
             .AsNoTracking()
