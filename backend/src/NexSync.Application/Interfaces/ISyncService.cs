@@ -6,4 +6,5 @@ public interface ISyncService
 {
     Task<PullResponse> PullAsync(Guid userId, long since, long until, int limit, CancellationToken cancellationToken = default);
     Task<CursorResponse> GetCursorAsync(Guid userId, CancellationToken cancellationToken = default);
+    Task<ManifestResponse> GetManifestAsync(Guid userId, CancellationToken cancellationToken = default);
 }

@@ -37,4 +37,11 @@ public class SyncController(ISyncService sync, IDeviceService devices) : Control
         await RequireDeviceAsync();
         return Ok(await sync.GetCursorAsync(UserId));
     }
+
+    [HttpGet("manifest")]
+    public async Task<IActionResult> Manifest()
+    {
+        await RequireDeviceAsync();
+        return Ok(await sync.GetManifestAsync(UserId));
+    }
 }

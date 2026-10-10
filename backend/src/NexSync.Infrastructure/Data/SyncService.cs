@@ -53,4 +53,40 @@ public class SyncService(AppDbContext context) : ISyncService
             .MaxAsync(c => (long?)c.Sequence, cancellationToken);
         return new CursorResponse(max ?? 0);
     }
+
+    public async Task<ManifestResponse> GetManifestAsync(Guid userId, CancellationToken cancellationToken = default)
+    {
+        await using var tx = await context.Database.BeginTransactionAsync(
+            System.Data.IsolationLevel.RepeatableRead, cancellationToken);
+        try
+        {
+            var folders = await context.Folders
+                .AsNoTracking()
+                .Where(f => f.OwnerId == userId)
+                .OrderBy(f => f.Name)
+                .Select(f => new ManifestFolderDto(f.Id, f.Name, f.ParentFolderId))
+                .ToListAsync(cancellationToken);
+
+            var files = await context.Files
+                .AsNoTracking()
+                .Where(f => f.OwnerId == userId)
+                .OrderBy(f => f.Name)
+                .Select(f => new ManifestFileDto(f.Id, f.Name, f.FolderId, f.Hash, f.Size, f.ContentType))
+                .ToListAsync(cancellationToken);
+
+            var snapshotCursor = await context.ChangeLogs
+                .AsNoTracking()
+                .Where(c => c.UserId == userId)
+                .MaxAsync(c => (long?)c.Sequence, cancellationToken)
+                ?? 0;
+
+            await tx.CommitAsync(cancellationToken);
+            return new ManifestResponse(snapshotCursor, folders, files);
+        }
+        catch
+        {
+            await tx.RollbackAsync(cancellationToken);
+            throw;
+        }
+    }
 }

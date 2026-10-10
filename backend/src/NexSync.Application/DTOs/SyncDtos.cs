@@ -20,3 +20,9 @@ public record PullResponse(
     long HighWaterCursor);
 
 public record CursorResponse(long HighWaterCursor);
+
+public record ManifestFolderDto(Guid Id, string Name, Guid? ParentFolderId);
+
+public record ManifestFileDto(Guid Id, string Name, Guid? FolderId, string Hash, long Size, string ContentType);
+
+public record ManifestResponse(long SnapshotCursor, List<ManifestFolderDto> Folders, List<ManifestFileDto> Files);

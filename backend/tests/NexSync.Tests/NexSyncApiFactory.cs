@@ -24,7 +24,22 @@ public sealed class NexSyncApiFactory : WebApplicationFactory<Program>
     [TestInitialize]
     public async Task InitializeAsync()
     {
-        await _db.StartAsync();
+        Exception? last = null;
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            try
+            {
+                await _db.StartAsync();
+                last = null;
+                break;
+            }
+            catch (TimeoutException ex)
+            {
+                last = ex;
+                await Task.Delay(TimeSpan.FromSeconds(5 * (attempt + 1)));
+            }
+        }
+        if (last is not null) throw last;
         _connectionString = _db.GetConnectionString();
         Directory.CreateDirectory(StorageRoot);
         using var scope = Services.CreateScope();
