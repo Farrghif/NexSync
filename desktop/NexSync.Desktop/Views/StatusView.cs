@@ -45,14 +45,14 @@ public sealed class StatusView : System.Windows.Controls.UserControl
             try
             {
                 await auth.LogoutAsync();
-                state.GoTo(AppScreen.Login);
             }
             catch (Exception ex)
             {
-                AppendLog("Sign-out failed: " + ex.Message);
+                AppendLog("Server sign-out failed (local session cleared anyway): " + ex.Message);
             }
             finally
             {
+                state.GoTo(AppScreen.Login);
                 signOut.IsEnabled = true;
             }
         };

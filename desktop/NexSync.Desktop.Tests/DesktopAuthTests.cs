@@ -210,12 +210,129 @@ public sealed class DesktopAuthServiceTests
                     accessToken = "jwt-abc",
                     user = new { id = Guid.NewGuid(), email = "u@x.dev", fullName = "U" }
                 }));
-        using var auth = new DesktopAuthService("http://localhost:5000", TempDir(), handler);
+        var dir = TempDir();
+        using var auth = new DesktopAuthService("http://localhost:5000", dir, handler);
         await auth.LoginAsync("u@x.dev", "password123");
         Assert.IsTrue(auth.IsSignedIn);
         await auth.LogoutAsync();
         Assert.IsFalse(auth.IsSignedIn);
         Assert.IsNull(auth.CurrentUser);
+        Assert.IsNull(auth.DeviceId);
+        Assert.IsFalse(File.Exists(Path.Combine(dir, "refresh-token.dat")));
+        Assert.IsFalse(File.Exists(Path.Combine(dir, "device.json")));
+    }
+
+    [TestMethod]
+    public async Task Restart_RestoresRefreshCookie_AndRefreshesSession()
+    {
+        var handler = new StubHandler(req =>
+        {
+            if (req.RequestUri!.AbsolutePath.EndsWith("/api/auth/login"))
+            {
+                var res = JsonResponse(HttpStatusCode.OK, new
+                {
+                    accessToken = "jwt-first",
+                    user = new { id = Guid.NewGuid(), email = "u@x.dev", fullName = "U" }
+                });
+                res.Headers.Add("Set-Cookie", "refreshToken=rt-123; Path=/api/auth; HttpOnly");
+                return res;
+            }
+            if (req.RequestUri!.AbsolutePath.EndsWith("/api/auth/refresh"))
+            {
+                var sent = req.Headers.TryGetValues("Cookie", out var v) ? string.Join(";", v) : string.Empty;
+                if (!sent.Contains("refreshToken=rt-123"))
+                    return new HttpResponseMessage(HttpStatusCode.Unauthorized);
+                var res = JsonResponse(HttpStatusCode.OK, new { accessToken = "jwt-second" });
+                res.Headers.Add("Set-Cookie", "refreshToken=rt-456; Path=/api/auth; HttpOnly");
+                return res;
+            }
+            var authHeader = req.Headers.Authorization?.Parameter;
+            if (authHeader == "jwt-second")
+                return JsonResponse(HttpStatusCode.OK, new { ok = true, via = "refreshed-jwt" });
+            return new HttpResponseMessage(HttpStatusCode.Unauthorized);
+        });
+        var dir = TempDir();
+        using (var auth = new DesktopAuthService("http://localhost:5000", dir, handler))
+        {
+            await auth.LoginAsync("u@x.dev", "password123");
+            Assert.IsTrue(auth.IsSignedIn);
+        }
+        foreach (var f in Directory.GetFiles(dir, "*", SearchOption.AllDirectories))
+            System.Diagnostics.Debug.WriteLine("FILE: " + f);
+        Assert.IsTrue(File.Exists(Path.Combine(dir, "refresh-token.dat")), "refresh-token.dat missing; files: " + string.Join(",", Directory.GetFiles(dir, "*", SearchOption.AllDirectories)));
+
+        using (var restarted = new DesktopAuthService("http://localhost:5000", dir, handler))
+        {
+            Assert.IsFalse(restarted.IsSignedIn);
+            using var req = new HttpRequestMessage(HttpMethod.Get, "api/sync/cursor");
+            using var res = await restarted.SendWithAuthAsync(req, allowRefresh: true);
+            Assert.AreEqual(HttpStatusCode.OK, res.StatusCode);
+            var doc = await ApiDocAsync(res);
+            Assert.AreEqual("refreshed-jwt", doc!.RootElement.GetProperty("via").GetString());
+            using var req2 = new HttpRequestMessage(HttpMethod.Get, "api/sync/cursor");
+            using var res2 = await restarted.SendWithAuthAsync(req2, allowRefresh: true);
+            Assert.AreEqual(HttpStatusCode.OK, res2.StatusCode);
+        }
+    }
+
+    private static async Task<System.Text.Json.JsonDocument?> ApiDocAsync(HttpResponseMessage res)
+    {
+        var body = await res.Content.ReadAsStringAsync();
+        if (string.IsNullOrEmpty(body)) return null;
+        try { return System.Text.Json.JsonDocument.Parse(body); } catch { return null; }
+    }
+
+    [TestMethod]
+    public async Task SendWithAuth_Forbidden_DoesNotTriggerReregistration()
+    {
+        var devicePosts = 0;
+        var handler = new StubHandler(req =>
+        {
+            if (req.RequestUri!.AbsolutePath.EndsWith("/api/devices"))
+            {
+                devicePosts++;
+                return new HttpResponseMessage(HttpStatusCode.Forbidden);
+            }
+            return new HttpResponseMessage(HttpStatusCode.OK);
+        });
+        using var auth = new DesktopAuthService("http://localhost:5000", TempDir(), handler);
+        using var req = new HttpRequestMessage(HttpMethod.Get, "api/sync/pull?since=0&until=10&limit=10");
+        using var res = await auth.SendWithAuthAsync(req, allowRefresh: true);
+        Assert.AreEqual(HttpStatusCode.OK, res.StatusCode);
+        Assert.AreEqual(0, devicePosts);
+        Assert.IsNull(auth.DeviceId);
+    }
+
+    [TestMethod]
+    public async Task RegistrationOperationId_PersistedAcrossInstances()
+    {
+        var opIds = new System.Collections.Generic.List<string?>();
+        var handler = new StubHandler(req =>
+        {
+            opIds.Add(req.Headers.TryGetValues("X-Operation-Id", out var o) ? string.Join(",", o) : null);
+            throw new HttpRequestException("Simulated network failure before server commit.");
+        });
+        var dir = TempDir();
+        using (var auth = new DesktopAuthService("http://localhost:5000", dir, handler))
+        {
+            await Assert.ThrowsExactlyAsync<HttpRequestException>(() => auth.EnsureDeviceRegisteredAsync("PC"));
+        }
+        using (var auth2 = new DesktopAuthService("http://localhost:5000", dir, handler))
+        {
+            await Assert.ThrowsExactlyAsync<HttpRequestException>(() => auth2.EnsureDeviceRegisteredAsync("PC"));
+        }
+        Assert.AreEqual(2, opIds.Count);
+        Assert.AreEqual(opIds[0], opIds[1]);
+        Assert.IsNotNull(opIds[0]);
+    }
+
+    [TestMethod]
+    public async Task Login_UnreachableServer_ThrowsHttpRequestException()
+    {
+        var handler = new StubHandler(_ => throw new HttpRequestException("No connection."));
+        using var auth = new DesktopAuthService("http://localhost:5000", TempDir(), handler);
+        await Assert.ThrowsExactlyAsync<HttpRequestException>(() => auth.LoginAsync("u@x.dev", "x"));
+        Assert.IsFalse(auth.IsSignedIn);
     }
 
     private static HttpResponseMessage JsonResponse(HttpStatusCode status, object payload)

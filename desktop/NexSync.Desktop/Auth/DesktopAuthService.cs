@@ -14,6 +14,8 @@ public sealed record UserInfo(Guid Id, string Email, string FullName);
 public sealed class DesktopAuthService : IDisposable
 {
     private readonly HttpClient _http;
+    private readonly CookieContainer _cookies;
+    private readonly Uri _baseUri;
     private readonly SecureTokenStore _tokenStore;
     private readonly string _configPath;
     private readonly SemaphoreSlim _refreshLock = new(1, 1);
@@ -27,23 +29,93 @@ public sealed class DesktopAuthService : IDisposable
         : this(baseUrl, dataDirectory, new HttpClientHandler
         {
             CookieContainer = new CookieContainer(),
-            UseCookies = true
+            UseCookies = false
         })
     {
     }
 
-    public DesktopAuthService(string baseUrl, string dataDirectory, HttpMessageHandler handler)
+    public DesktopAuthService(string baseUrl, string dataDirectory, HttpMessageHandler handler, CookieContainer? cookies = null)
     {
         Directory.CreateDirectory(dataDirectory);
         _tokenStore = new SecureTokenStore(Path.Combine(dataDirectory, "refresh-token.dat"));
         _configPath = Path.Combine(dataDirectory, "device.json");
-        _http = new HttpClient(handler) { BaseAddress = new Uri(baseUrl.TrimEnd('/') + "/") };
+        _baseUri = new Uri(baseUrl.TrimEnd('/') + "/");
+        _http = new HttpClient(handler) { BaseAddress = _baseUri };
+        _cookies = cookies ?? (handler as HttpClientHandler)?.CookieContainer ?? new CookieContainer();
         DeviceId = LoadDeviceId();
+        RestoreRefreshCookie();
+    }
+
+    private void PersistRefreshCookie()
+    {
+        var probe = new Uri(_baseUri, "api/auth/");
+        var found = _cookies.GetCookies(new Uri(_baseUri, "api/auth/"))["refreshToken"];
+        if (found is not null && !string.IsNullOrEmpty(found.Value))
+        {
+            _tokenStore.Save(found.Value);
+        }
+    }
+
+    private void RestoreRefreshCookie()
+    {
+        var saved = _tokenStore.Load();
+        if (string.IsNullOrEmpty(saved)) return;
+        _cookies.Add(_baseUri, new Cookie("refreshToken", saved) { Path = "/api/auth" });
+    }
+
+    private void ClearRefreshCookie()
+    {
+        _tokenStore.Clear();
+        foreach (Cookie cookie in _cookies.GetCookies(_baseUri))
+            cookie.Expired = true;
+    }
+
+    private void ApplyCookies(HttpRequestMessage request)
+    {
+        if (request.RequestUri is null) return;
+        var uri = request.RequestUri.IsAbsoluteUri ? request.RequestUri : new Uri(_baseUri, request.RequestUri);
+        var header = _cookies.GetCookieHeader(uri);
+        if (!string.IsNullOrEmpty(header) && !request.Headers.Contains("Cookie"))
+            request.Headers.Add("Cookie", header);
+    }
+
+    private void StoreCookiesFromResponse(HttpResponseMessage response)
+    {
+        if (!response.Headers.TryGetValues("Set-Cookie", out var values)) return;
+        foreach (var value in values)
+        {
+            var pair = value.Split(';', 2)[0].Split('=', 2);
+            if (pair.Length != 2) continue;
+            var name = pair[0].Trim();
+            var cookieValue = pair[1].Trim();
+            if (string.IsNullOrEmpty(cookieValue))
+            {
+                foreach (Cookie existing in _cookies.GetCookies(_baseUri))
+                {
+                    if (string.Equals(existing.Name, name, StringComparison.OrdinalIgnoreCase))
+                        existing.Expired = true;
+                }
+                continue;
+            }
+            _cookies.Add(_baseUri, new Cookie(name, cookieValue) { Path = "/api/auth" });
+        }
+    }
+
+    private async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+    {
+        ApplyCookies(request);
+        var response = await _http.SendAsync(request, ct);
+        StoreCookiesFromResponse(response);
+        return response;
     }
 
     public async Task<UserInfo> LoginAsync(string email, string password, CancellationToken ct = default)
     {
-        using var res = await _http.PostAsJsonAsync("api/auth/login", new { email, password }, ct);
+        using var req = new HttpRequestMessage(HttpMethod.Post, "api/auth/login")
+        {
+            Content = JsonContent.Create(new { email, password })
+        };
+        using var res = await SendAsync(req, ct);
         if (res.StatusCode == HttpStatusCode.Unauthorized)
             throw new UnauthorizedException("Invalid email or password.");
         res.EnsureSuccessStatusCode();
@@ -52,7 +124,11 @@ public sealed class DesktopAuthService : IDisposable
 
     public async Task<UserInfo> RegisterAsync(string email, string password, string fullName, CancellationToken ct = default)
     {
-        using var res = await _http.PostAsJsonAsync("api/auth/register", new { email, password, fullName }, ct);
+        using var req = new HttpRequestMessage(HttpMethod.Post, "api/auth/register")
+        {
+            Content = JsonContent.Create(new { email, password, fullName })
+        };
+        using var res = await SendAsync(req, ct);
         res.EnsureSuccessStatusCode();
         return await AcceptAuthResponseAsync(res, ct);
     }
@@ -70,7 +146,13 @@ public sealed class DesktopAuthService : IDisposable
         {
             _accessToken = null;
             CurrentUser = null;
-            _tokenStore.Clear();
+            DeviceId = null;
+            ClearRefreshCookie();
+            if (File.Exists(_configPath))
+                File.Delete(_configPath);
+            var opPath = Path.Combine(Path.GetDirectoryName(_configPath)!, "device-registration-op.txt");
+            if (File.Exists(opPath))
+                File.Delete(opPath);
         }
     }
 
@@ -96,16 +178,20 @@ public sealed class DesktopAuthService : IDisposable
             request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _accessToken);
         if (DeviceId is not null && !request.Headers.Contains("X-Device-Id") && !request.RequestUri!.AbsolutePath.EndsWith("/api/devices"))
             request.Headers.Add("X-Device-Id", DeviceId);
-        var res = await _http.SendAsync(request, ct);
+        var res = await SendAsync(request, ct);
         if (res.StatusCode != HttpStatusCode.Unauthorized || !allowRefresh)
             return res;
         res.Dispose();
         var refreshed = await TryRefreshAsync(ct);
         if (!refreshed)
-            return res;
+        {
+            var denied = new HttpResponseMessage(HttpStatusCode.Unauthorized);
+            denied.RequestMessage = request;
+            return denied;
+        }
         var retry = await CloneRequestAsync(request, ct);
         retry.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _accessToken);
-        return await _http.SendAsync(retry, ct);
+        return await SendAsync(retry, ct);
     }
 
     private async Task<bool> TryRefreshAsync(CancellationToken ct)
@@ -115,11 +201,13 @@ public sealed class DesktopAuthService : IDisposable
         {
             using var req = new HttpRequestMessage(HttpMethod.Post, "api/auth/refresh");
             req.Headers.Add("X-CSRF", "1");
-            using var res = await _http.SendAsync(req, ct);
+            using var res = await SendAsync(req, ct);
             if (!res.IsSuccessStatusCode)
                 return false;
             using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync(ct));
             _accessToken = doc.RootElement.GetProperty("accessToken").GetString();
+            if (_accessToken is not null)
+                PersistRefreshCookie();
             return _accessToken is not null;
         }
         finally
@@ -138,6 +226,7 @@ public sealed class DesktopAuthService : IDisposable
             userEl.GetProperty("fullName").GetString()!);
         _accessToken = doc.RootElement.GetProperty("accessToken").GetString();
         CurrentUser = user;
+        PersistRefreshCookie();
         return user;
     }
 
