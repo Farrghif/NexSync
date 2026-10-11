@@ -173,7 +173,10 @@ public sealed class PullPipeline(
             var row = _folders.GetByServerId(change.EntityId);
             if (row is null) return false;
             if (change.Operation == "Deleted") return false;
-            return change.Name is null || string.Equals(Path.GetFileName(row.RelativePath), change.Name, StringComparison.OrdinalIgnoreCase);
+            if (change.Name is null) return false;
+            var expected = ResolveFolderPath(change.EntityId, change.ParentFolderId, change.Name);
+            return expected is not null
+                && string.Equals(row.RelativePath, expected, StringComparison.OrdinalIgnoreCase);
         }
     }
 
@@ -217,7 +220,7 @@ public sealed class PullPipeline(
         if (relPath is null) return false;
         var fullPath = ToFullPath(relPath);
         Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
-        var tempPath = fullPath + ".nexsync-temp-" + Guid.NewGuid().ToString("N");
+        var tempPath = fullPath + "." + Guid.NewGuid().ToString("N") + ".nexsync-temp";
         try
         {
             using (var req = new HttpRequestMessage(HttpMethod.Get, $"api/files/{change.EntityId}/download"))
@@ -330,6 +333,7 @@ public sealed class PullPipeline(
                     Directory.Move(oldFull, newFull);
             }
             using var tx = db.BeginTransaction();
+            RewriteDescendantPaths(row.RelativePath, relPath, change.Sequence, tx);
             _folders.Delete(row.RelativePath, tx);
             _folders.Upsert(new LocalFolderRow(relPath, row.ServerFolderId, ParentOf(relPath),
                 change.Sequence, DateTime.UtcNow), tx);
@@ -345,6 +349,26 @@ public sealed class PullPipeline(
         return true;
     }
 
+    private void RewriteDescendantPaths(string oldPrefix, string newPrefix, long sequence, Microsoft.Data.Sqlite.SqliteTransaction tx)
+    {
+        foreach (var child in _folders.GetDescendants(oldPrefix, tx))
+        {
+            var suffix = child.RelativePath[oldPrefix.Length..].TrimStart('/');
+            var childNew = newPrefix + "/" + suffix;
+            _folders.Delete(child.RelativePath, tx);
+            _folders.Upsert(new LocalFolderRow(childNew, child.ServerFolderId,
+                ParentOf(childNew), sequence, DateTime.UtcNow), tx);
+        }
+        foreach (var file in _files.GetByFolderPath(oldPrefix, tx))
+        {
+            var suffix = file.RelativePath[oldPrefix.Length..].TrimStart('/');
+            var fileNew = newPrefix + "/" + suffix;
+            _files.Delete(file.RelativePath, tx);
+            _files.Upsert(new LocalFileRow(fileNew, file.ServerFileId, file.ServerFolderId,
+                file.Hash, file.Size, sequence, DateTime.UtcNow), tx);
+        }
+    }
+
     private bool DeleteLocalFolder(RemoteChange change)
     {
         var row = _folders.GetByServerId(change.EntityId);
@@ -357,6 +381,10 @@ public sealed class PullPipeline(
                     Directory.Delete(fullPath, recursive: true);
             }
             using var tx = db.BeginTransaction();
+            foreach (var child in _folders.GetDescendants(row.RelativePath, tx))
+                _folders.Delete(child.RelativePath, tx);
+            foreach (var file in _files.GetByFolderPath(row.RelativePath, tx))
+                _files.Delete(file.RelativePath, tx);
             _folders.Delete(row.RelativePath, tx);
             tx.Commit();
         }

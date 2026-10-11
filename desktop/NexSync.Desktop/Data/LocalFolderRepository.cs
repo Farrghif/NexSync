@@ -61,6 +61,19 @@ public sealed class LocalFolderRepository(SqliteConnection connection)
         return result;
     }
 
+    public List<LocalFolderRow> GetDescendants(string ancestorRelativePath, SqliteTransaction? tx = null)
+    {
+        var prefix = LocalPath.Canonicalize(ancestorRelativePath) + "/";
+        using var cmd = connection.CreateCommand();
+        if (tx is not null) cmd.Transaction = tx;
+        cmd.CommandText = "SELECT RelativePath, ServerFolderId, ParentRelativePath, LastAppliedSequence, UpdatedAt FROM LocalFolders WHERE RelativePath LIKE $prefix || '%' ESCAPE '\\' ORDER BY RelativePath;";
+        cmd.Parameters.AddWithValue("$prefix", prefix.Replace(@"\", @"\\").Replace("%", @"\%").Replace("_", @"\_"));
+        using var reader = cmd.ExecuteReader();
+        var result = new List<LocalFolderRow>();
+        while (reader.Read()) result.Add(Map(reader));
+        return result;
+    }
+
     public void Delete(string relativePath, SqliteTransaction? tx = null)
     {
         using var cmd = connection.CreateCommand();

@@ -193,7 +193,7 @@ public sealed class PullPipelineTests
 
         Assert.AreEqual(PullApplyOutcome.TransientFailure, outcome);
         Assert.AreEqual("original-bytes", File.ReadAllText(Path.Combine(_root, "keep.txt")));
-        Assert.AreEqual(0, Directory.GetFiles(_root, "*.nexsync-temp-*").Length);
+        Assert.AreEqual(0, Directory.GetFiles(_root, "*.nexsync-temp").Length);
         Assert.AreEqual(0L, pull.GetCursor());
     }
 
@@ -424,7 +424,7 @@ public sealed class PullPipelineTests
 
         Assert.AreEqual(PullApplyOutcome.TransientFailure, outcome);
         Assert.AreEqual("original", File.ReadAllText(Path.Combine(_root, "victim.txt")));
-        Assert.AreEqual(0, Directory.GetFiles(_root, "*.nexsync-temp-*").Length);
+        Assert.AreEqual(0, Directory.GetFiles(_root, "*.nexsync-temp").Length);
         Assert.AreEqual(0L, pull.GetCursor());
     }
 
@@ -555,10 +555,101 @@ public sealed class PullPipelineTests
             throw new IOException("Simulated mid-download crash.");
         }
 
-        protected override bool TryComputeLength(out long length)
+    protected override bool TryComputeLength(out long length)
+    {
+        length = data.Length;
+        return true;
+    }
+    }
+
+    [TestMethod]
+    public async Task SkipSelf_FolderMoveSameName_DoesNotSkipWhenParentDiffers()
+    {
+        var ownDevice = Guid.NewGuid();
+        var folderId = Guid.NewGuid();
+        SeedFolder(_db, "A/Docs", folderId);
+        Directory.CreateDirectory(Path.Combine(_root, "A", "Docs"));
+        var authDir = Path.Combine(_dir, "auth-skipmove");
+        Directory.CreateDirectory(authDir);
+        File.WriteAllText(Path.Combine(authDir, "device.json"),
+            System.Text.Json.JsonSerializer.Serialize(new { deviceId = ownDevice.ToString() }));
+        var handler = new StubHandler(_ => Json(HttpStatusCode.OK, new
         {
-            length = data.Length;
-            return true;
-        }
+            changes = new[] { Change(20, "Folder", folderId, "Moved", "Docs", null, origin: ownDevice) },
+            nextCursor = 20L,
+            hasMore = false,
+            highWaterCursor = 20L
+        }));
+        var auth = new DesktopAuthService("http://localhost:5000", authDir, handler);
+        var pull = new PullPipeline(_db, new PendingQueueService(_db), auth, _root);
+
+        Assert.AreEqual(PullApplyOutcome.Applied, await pull.PullAndApplyAsync(until: 20));
+        var row = new LocalFolderRepository(_db.Connection).GetByServerId(folderId);
+        Assert.AreEqual("Docs", row?.RelativePath);
+        Assert.AreEqual(20L, pull.GetCursor());
+    }
+
+    [TestMethod]
+    public async Task FolderMove_RewritesNestedMetadata()
+    {
+        var folderId = Guid.NewGuid();
+        var subId = Guid.NewGuid();
+        var fileId = Guid.NewGuid();
+        SeedFolder(_db, "Old", folderId);
+        SeedFolder(_db, "Old/Sub", subId);
+        SeedFile(_db, "Old/Sub/f.txt", fileId);
+        Directory.CreateDirectory(Path.Combine(_root, "Old", "Sub"));
+        File.WriteAllText(Path.Combine(_root, "Old", "Sub", "f.txt"), "x");
+        var (pull, _) = Create(_ => Json(HttpStatusCode.OK, new
+        {
+            changes = new[] { Change(21, "Folder", folderId, "Moved", "New", null) },
+            nextCursor = 21L,
+            hasMore = false,
+            highWaterCursor = 21L
+        }));
+
+        Assert.AreEqual(PullApplyOutcome.Applied, await pull.PullAndApplyAsync(until: 21));
+        Assert.IsTrue(Directory.Exists(Path.Combine(_root, "New", "Sub")));
+        Assert.IsTrue(File.Exists(Path.Combine(_root, "New", "Sub", "f.txt")));
+        Assert.AreEqual("New/Sub", new LocalFolderRepository(_db.Connection).GetByServerId(subId)?.RelativePath);
+        var file = new LocalFileRepository(_db.Connection).GetByServerId(fileId);
+        Assert.AreEqual("New/Sub/f.txt", file?.RelativePath);
+        Assert.IsNull(new LocalFolderRepository(_db.Connection).GetByPath("Old/Sub"));
+    }
+
+    [TestMethod]
+    public async Task FolderDelete_RemovesNestedMetadata()
+    {
+        var folderId = Guid.NewGuid();
+        var subId = Guid.NewGuid();
+        var fileId = Guid.NewGuid();
+        SeedFolder(_db, "Gone", folderId);
+        SeedFolder(_db, "Gone/Sub", subId);
+        SeedFile(_db, "Gone/Sub/f.txt", fileId);
+        Directory.CreateDirectory(Path.Combine(_root, "Gone", "Sub"));
+        File.WriteAllText(Path.Combine(_root, "Gone", "Sub", "f.txt"), "x");
+        var (pull, _) = Create(_ => Json(HttpStatusCode.OK, new
+        {
+            changes = new[] { Change(22, "Folder", folderId, "Deleted", "Gone", null) },
+            nextCursor = 22L,
+            hasMore = false,
+            highWaterCursor = 22L
+        }));
+
+        Assert.AreEqual(PullApplyOutcome.Applied, await pull.PullAndApplyAsync(until: 22));
+        Assert.IsFalse(Directory.Exists(Path.Combine(_root, "Gone")));
+        Assert.IsNull(new LocalFolderRepository(_db.Connection).GetByServerId(subId));
+        Assert.IsNull(new LocalFileRepository(_db.Connection).GetByServerId(fileId));
+        Assert.IsNull(new LocalFolderRepository(_db.Connection).GetByServerId(folderId));
+    }
+
+    [TestMethod]
+    public void PullTempFiles_AreInvisibleToWatcher()
+    {
+        var tempName = "report.pdf." + Guid.NewGuid().ToString("N") + ".nexsync-temp";
+        Assert.IsTrue(FolderWatcherService.IsInternalPath(_root, Path.Combine(_root, "Docs", tempName)));
+        using var watcher = new FolderWatcherService(_root, _db);
+        watcher.ProcessPathForTest(Path.Combine(_root, "Docs", tempName));
+        Assert.AreEqual(0, new PendingOperationRepository(_db.Connection).CountPending());
     }
 }
