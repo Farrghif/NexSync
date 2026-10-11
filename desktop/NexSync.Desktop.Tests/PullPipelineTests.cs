@@ -305,12 +305,258 @@ public sealed class PullPipelineTests
     {
         var (forbidden, _) = Create(_ => new HttpResponseMessage(HttpStatusCode.Forbidden));
         Assert.AreEqual(PullApplyOutcome.Forbidden, await forbidden.PullAndApplyAsync(until: 10));
+        Assert.AreEqual(0L, forbidden.GetCursor());
 
         var (unauth, _) = Create(_ => new HttpResponseMessage(HttpStatusCode.Unauthorized));
         Assert.AreEqual(PullApplyOutcome.AuthFailed, await unauth.PullAndApplyAsync(until: 10));
+        Assert.AreEqual(0L, unauth.GetCursor());
 
         var (err, _) = Create(_ => new HttpResponseMessage(HttpStatusCode.InternalServerError));
         Assert.AreEqual(PullApplyOutcome.TransientFailure, await err.PullAndApplyAsync(until: 10));
         Assert.AreEqual(0L, err.GetCursor());
+    }
+
+    [TestMethod]
+    public async Task TrueHasMoreLoop_PagesAcrossWindowsInOrder()
+    {
+        var folderId = Guid.NewGuid();
+        var (pull, _) = Create(req =>
+        {
+            var q = System.Web.HttpUtility.ParseQueryString(req.RequestUri!.Query);
+            var since = long.Parse(q["since"]!);
+            object[] changes = since switch
+            {
+                0 => new[] { Change(1, "Folder", folderId, "Created", "P1", null) },
+                1 => new[] { Change(2, "Folder", Guid.NewGuid(), "Created", "P2", null) },
+                _ => Array.Empty<object>()
+            };
+            var next = since == 0 ? 1L : 2L;
+            var more = since == 0;
+            return Json(HttpStatusCode.OK, new
+            {
+                changes,
+                nextCursor = next,
+                hasMore = more,
+                highWaterCursor = 2L
+            });
+        });
+
+        var outcome = await pull.PullAndApplyAsync(until: 2);
+
+        Assert.AreEqual(PullApplyOutcome.Applied, outcome);
+        Assert.AreEqual(2L, pull.GetCursor());
+        Assert.IsTrue(Directory.Exists(Path.Combine(_root, "P1")));
+        Assert.IsTrue(Directory.Exists(Path.Combine(_root, "P2")));
+    }
+
+    [TestMethod]
+    public async Task MidBatchFailure_LeavesCursorAtPreBatchValue_RePullRepeatsCleanly()
+    {
+        var fileId = Guid.NewGuid();
+        var goodPayload = Encoding.UTF8.GetBytes("good");
+        var (pull, _) = Create(req =>
+        {
+            if (req.RequestUri!.ToString().Contains("/download"))
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(goodPayload) };
+            return Json(HttpStatusCode.OK, new
+            {
+                changes = new[]
+                {
+                    Change(1, "Folder", Guid.NewGuid(), "Created", "M", null),
+                    Change(2, "File", fileId, "Created", "m.txt", null, "WRONG-HASH", 4L, "text/plain")
+                },
+                nextCursor = 2L,
+                hasMore = false,
+                highWaterCursor = 2L
+            });
+        });
+
+        var outcome = await pull.PullAndApplyAsync(until: 2);
+
+        Assert.AreEqual(PullApplyOutcome.TransientFailure, outcome);
+        Assert.AreEqual(0L, pull.GetCursor());
+        Assert.IsTrue(Directory.Exists(Path.Combine(_root, "M")));
+
+        var (pull2, _) = Create(req =>
+        {
+            if (req.RequestUri!.ToString().Contains("/download"))
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(goodPayload) };
+            return Json(HttpStatusCode.OK, new
+            {
+                changes = new[]
+                {
+                    Change(1, "Folder", Guid.NewGuid(), "Created", "M", null),
+                    Change(2, "File", fileId, "Created", "m.txt", null, Sha256Of(goodPayload), (long)goodPayload.Length, "text/plain")
+                },
+                nextCursor = 2L,
+                hasMore = false,
+                highWaterCursor = 2L
+            });
+        });
+        Assert.AreEqual(PullApplyOutcome.Applied, await pull2.PullAndApplyAsync(until: 2));
+        Assert.AreEqual(2L, pull2.GetCursor());
+        Assert.AreEqual("good", File.ReadAllText(Path.Combine(_root, "m.txt")));
+    }
+
+    [TestMethod]
+    public async Task CrashMidFile_LeavesTempDiscarded_OriginalIntact()
+    {
+        var fileId = Guid.NewGuid();
+        SeedFile(_db, "victim.txt", fileId, hash: "ORIG");
+        File.WriteAllText(Path.Combine(_root, "victim.txt"), "original");
+        var (pull, _) = Create(req =>
+        {
+            if (req.RequestUri!.ToString().Contains("/download"))
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new CrashAfterBytesContent(Encoding.UTF8.GetBytes("partial-data"), failAfterBytes: 4)
+                };
+            return Json(HttpStatusCode.OK, new
+            {
+                changes = new[] { Change(4, "File", fileId, "Modified", "victim.txt", null, Sha256Of(Encoding.UTF8.GetBytes("full-data-12345")), 15L, "text/plain") },
+                nextCursor = 4L,
+                hasMore = false,
+                highWaterCursor = 4L
+            });
+        });
+
+        var outcome = await pull.PullAndApplyAsync(until: 4);
+
+        Assert.AreEqual(PullApplyOutcome.TransientFailure, outcome);
+        Assert.AreEqual("original", File.ReadAllText(Path.Combine(_root, "victim.txt")));
+        Assert.AreEqual(0, Directory.GetFiles(_root, "*.nexsync-temp-*").Length);
+        Assert.AreEqual(0L, pull.GetCursor());
+    }
+
+    [TestMethod]
+    public async Task CrossParentMove_UpdatesServerFolderId()
+    {
+        var fileId = Guid.NewGuid();
+        var srcId = Guid.NewGuid();
+        var dstId = Guid.NewGuid();
+        SeedFolder(_db, "Src", srcId);
+        SeedFolder(_db, "Dst", dstId);
+        SeedFile(_db, "Src/f.txt", fileId);
+        Directory.CreateDirectory(Path.Combine(_root, "Src"));
+        Directory.CreateDirectory(Path.Combine(_root, "Dst"));
+        File.WriteAllText(Path.Combine(_root, "Src", "f.txt"), "x");
+        var (pull, _) = Create(_ => Json(HttpStatusCode.OK, new
+        {
+            changes = new[] { Change(6, "File", fileId, "Moved", "f.txt", dstId) },
+            nextCursor = 6L,
+            hasMore = false,
+            highWaterCursor = 6L
+        }));
+
+        var outcome = await pull.PullAndApplyAsync(until: 6);
+
+        Assert.AreEqual(PullApplyOutcome.Applied, outcome);
+        var row = new LocalFileRepository(_db.Connection).GetByServerId(fileId);
+        Assert.AreEqual("Dst/f.txt", row?.RelativePath);
+        Assert.AreEqual(dstId, row?.ServerFolderId);
+        Assert.IsTrue(File.Exists(Path.Combine(_root, "Dst", "f.txt")));
+    }
+
+    [TestMethod]
+    public async Task SkipSelf_Negatives_AreApplied()
+    {
+        var ownDevice = Guid.NewGuid();
+        var authDir = Path.Combine(_dir, "auth-skip");
+        Directory.CreateDirectory(authDir);
+        File.WriteAllText(Path.Combine(authDir, "device.json"),
+            JsonSerializer.Serialize(new { deviceId = ownDevice.ToString() }));
+
+        PullPipeline MakePull(Func<HttpRequestMessage, HttpResponseMessage> respond)
+        {
+            var handler = new StubHandler(respond);
+            var auth = new DesktopAuthService("http://localhost:5000", authDir, handler);
+            return new PullPipeline(_db, new PendingQueueService(_db), auth, _root);
+        }
+
+        var fileId = Guid.NewGuid();
+        var newPayload = Encoding.UTF8.GetBytes("remote-newer");
+        SeedFile(_db, "s.txt", fileId, hash: "DIFFERENT");
+        File.WriteAllText(Path.Combine(_root, "s.txt"), "local");
+        var pull = MakePull(req =>
+        {
+            if (req.RequestUri!.ToString().Contains("/download"))
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(newPayload) };
+            return Json(HttpStatusCode.OK, new
+            {
+                changes = new[] { Change(8, "File", fileId, "Modified", "s.txt", null, Sha256Of(newPayload), newPayload.Length, "text/plain", ownDevice) },
+                nextCursor = 8L,
+                hasMore = false,
+                highWaterCursor = 8L
+            });
+        });
+        Assert.AreEqual(PullApplyOutcome.Applied, await pull.PullAndApplyAsync(until: 8));
+        Assert.AreEqual("remote-newer", File.ReadAllText(Path.Combine(_root, "s.txt")));
+
+        var delId = Guid.NewGuid();
+        SeedFile(_db, "d.txt", delId, hash: "H");
+        File.WriteAllText(Path.Combine(_root, "d.txt"), "x");
+        var pull2 = MakePull(_ => Json(HttpStatusCode.OK, new
+        {
+            changes = new[] { Change(9, "File", delId, "Deleted", "d.txt", null, null, null, contentType: null, origin: ownDevice) },
+            nextCursor = 9L,
+            hasMore = false,
+            highWaterCursor = 9L
+        }));
+        Assert.AreEqual(PullApplyOutcome.Applied, await pull2.PullAndApplyAsync(until: 9));
+        Assert.IsFalse(File.Exists(Path.Combine(_root, "d.txt")));
+
+        var nullId = Guid.NewGuid();
+        SeedFile(_db, "n.txt", nullId, hash: Sha256Of(Encoding.UTF8.GetBytes("z")));
+        File.WriteAllText(Path.Combine(_root, "n.txt"), "z");
+        var pull3 = MakePull(req =>
+        {
+            if (req.RequestUri!.ToString().Contains("/download"))
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(Encoding.UTF8.GetBytes("z")) };
+            return Json(HttpStatusCode.OK, new
+            {
+                changes = new[] { Change(10, "File", nullId, "Modified", "n.txt", null, Sha256Of(Encoding.UTF8.GetBytes("z")), 1L, "text/plain", null) },
+                nextCursor = 10L,
+                hasMore = false,
+                highWaterCursor = 10L
+            });
+        });
+        Assert.AreEqual(PullApplyOutcome.Applied, await pull3.PullAndApplyAsync(until: 10));
+    }
+
+    [TestMethod]
+    public async Task Delete_IdempotentWhenAlreadyAbsent()
+    {
+        var fileId = Guid.NewGuid();
+        var (pull, _) = Create(_ => Json(HttpStatusCode.OK, new
+        {
+            changes = new[] { Change(12, "File", fileId, "Deleted", "gone.txt", null) },
+            nextCursor = 12L,
+            hasMore = false,
+            highWaterCursor = 12L
+        }));
+
+        var outcome = await pull.PullAndApplyAsync(until: 12);
+
+        Assert.AreEqual(PullApplyOutcome.Applied, outcome);
+        Assert.AreEqual(12L, pull.GetCursor());
+    }
+
+    private sealed class CrashAfterBytesContent(byte[] data, int failAfterBytes) : HttpContent
+    {
+        protected override Task SerializeToStreamAsync(Stream stream, TransportContext? context)
+            => SerializeToStreamAsync(stream, context, CancellationToken.None);
+
+        private async Task SerializeToStreamAsync(Stream stream, TransportContext? context, CancellationToken ct)
+        {
+            await stream.WriteAsync(data.AsMemory(0, Math.Min(failAfterBytes, data.Length)), ct);
+            await stream.FlushAsync(ct);
+            throw new IOException("Simulated mid-download crash.");
+        }
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = data.Length;
+            return true;
+        }
     }
 }

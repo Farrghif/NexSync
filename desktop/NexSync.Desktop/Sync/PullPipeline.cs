@@ -147,6 +147,14 @@ public sealed class PullPipeline(
         {
             return false;
         }
+        catch (HttpRequestException)
+        {
+            return false;
+        }
+        catch (TaskCanceledException)
+        {
+            return false;
+        }
     }
 
     private bool IsOwnConfirmedChange(RemoteChange change)
@@ -266,7 +274,7 @@ public sealed class PullPipeline(
         }
         using var tx = db.BeginTransaction();
         _files.Delete(row.RelativePath, tx);
-        _files.Upsert(new LocalFileRow(relPath, row.ServerFileId, row.ServerFolderId,
+        _files.Upsert(new LocalFileRow(relPath, row.ServerFileId, change.ParentFolderId,
             row.Hash, row.Size, change.Sequence, DateTime.UtcNow), tx);
         tx.Commit();
         return true;
