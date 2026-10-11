@@ -86,11 +86,16 @@ public sealed class SuppressionTests
         using var watcher = new FolderWatcherService(_root, _db!, tracker);
         var full = Path.Combine(_root, "temp.txt");
         File.WriteAllText(full, "remote");
-        watcher.ProcessPathForTest(full);
+        var hash = Sha256Of(System.Text.Encoding.UTF8.GetBytes("remote"));
+        new LocalFileRepository(_db!.Connection).Upsert(
+            new LocalFileRow("temp.txt", Guid.NewGuid(), null, hash, 6, 0, DateTime.UtcNow));
+        using (tracker.Suppress("temp.txt", hash))
+        {
+            watcher.ProcessPathForTest(full);
+        }
         var pending = new PendingOperationRepository(_db!.Connection);
-        Assert.AreEqual(1, pending.CountPending());
-        foreach (var op in pending.DequeueBatch(10))
-            pending.MarkDone(op.OperationId);
+        Assert.AreEqual(0, pending.CountPending(),
+            "Suppressed pull write must not enqueue.");
 
         File.Delete(full);
         watcher.ProcessPathForTest(full);
@@ -180,6 +185,46 @@ public sealed class SuppressionTests
     }
 
     [TestMethod]
+    public void RenameEcho_OldPathOnlySuppressed_ProducesNoOp()
+    {
+        var tracker = new SuppressionTracker();
+        using var watcher = new FolderWatcherService(_root, _db!, tracker);
+        var oldFull = Path.Combine(_root, "c.txt");
+        var newFull = Path.Combine(_root, "d.txt");
+        File.WriteAllText(oldFull, "data");
+        watcher.ProcessPathForTest(oldFull);
+        Assert.AreEqual(1, new PendingOperationRepository(_db!.Connection).CountPending());
+
+        File.Move(oldFull, newFull);
+        using (tracker.Suppress("c.txt", null))
+        {
+            watcher.ProcessPathForTest(newFull, oldFull);
+        }
+
+        Assert.AreEqual(1, new PendingOperationRepository(_db!.Connection).CountPending());
+    }
+
+    [TestMethod]
+    public void RenameEcho_NewPathOnlySuppressed_ProducesNoOp()
+    {
+        var tracker = new SuppressionTracker();
+        using var watcher = new FolderWatcherService(_root, _db!, tracker);
+        var oldFull = Path.Combine(_root, "e.txt");
+        var newFull = Path.Combine(_root, "f.txt");
+        File.WriteAllText(oldFull, "data");
+        watcher.ProcessPathForTest(oldFull);
+        Assert.AreEqual(1, new PendingOperationRepository(_db!.Connection).CountPending());
+
+        File.Move(oldFull, newFull);
+        using (tracker.Suppress("f.txt", null))
+        {
+            watcher.ProcessPathForTest(newFull, oldFull);
+        }
+
+        Assert.AreEqual(1, new PendingOperationRepository(_db!.Connection).CountPending());
+    }
+
+    [TestMethod]
     public void GenuineUserRename_WithNoSuppression_IsEnqueued()
     {
         var tracker = new SuppressionTracker();
@@ -208,6 +253,47 @@ public sealed class SuppressionTests
     }
 
     [TestMethod]
+    public void CanonicalKeys_CaseAndSeparatorInsensitive()
+    {
+        var tracker = new SuppressionTracker();
+        using (tracker.Suppress(@"Sub\Dir\File.TXT", "H"))
+        {
+            Assert.IsTrue(tracker.IsSuppressed("sub/dir/file.txt", "H"));
+            Assert.IsTrue(tracker.IsSuppressed("SUB\\DIR\\FILE.txt", "h"));
+            Assert.IsFalse(tracker.IsSuppressed("sub/dir/other.txt", "H"));
+        }
+    }
+
+    [TestMethod]
+    public void NestedScopes_LatestHashWins_RefcountGuardsScope()
+    {
+        var tracker = new SuppressionTracker(TimeSpan.FromMinutes(5));
+        var outer = tracker.Suppress("nest.txt", "OUTER");
+        var inner = tracker.Suppress("nest.txt", "INNER");
+        Assert.IsTrue(tracker.IsSuppressed("nest.txt", "INNER"));
+        Assert.IsTrue(tracker.IsSuppressed("nest.txt", "OUTER"),
+            "Live scope suppresses regardless of hash (in-flight write protection).");
+        inner.Dispose();
+        Assert.IsTrue(tracker.IsSuppressed("nest.txt", "INNER"),
+            "Outer scope still live: in-scope writes suppress regardless of hash.");
+        outer.Dispose();
+        Assert.IsTrue(tracker.IsSuppressed("nest.txt", "INNER"),
+            "TTL tail holds the latest hash after all scopes close.");
+        Assert.IsFalse(tracker.IsSuppressed("nest.txt", "OUTER"),
+            "TTL tail matches exact hash only.");
+    }
+
+    [TestMethod]
+    public void DoubleDispose_IsSafe()
+    {
+        var tracker = new SuppressionTracker();
+        var scope = tracker.Suppress("d.txt", "H");
+        scope.Dispose();
+        scope.Dispose();
+        Assert.IsTrue(tracker.IsSuppressed("d.txt", "H"));
+    }
+
+    [TestMethod]
     public void ConcurrentSuppressAndCheck_IsConsistent()
     {
         var tracker = new SuppressionTracker(TimeSpan.FromMilliseconds(100));
@@ -223,6 +309,11 @@ public sealed class SuppressionTests
                         tracker.IsSuppressed($"f{i}.txt", "HASH");
                         tracker.IsSuppressed($"f{i}.txt", "OTHER");
                     }
+                    using (tracker.Suppress("shared.txt", "HASH"))
+                    {
+                        if (!tracker.IsSuppressed("shared.txt", "HASH"))
+                            throw new InvalidOperationException("Live scope must suppress.");
+                    }
                 }
             }
             catch (Exception ex)
@@ -234,6 +325,7 @@ public sealed class SuppressionTests
         Assert.AreEqual(0, errors.Count);
         Thread.Sleep(400);
         Assert.IsFalse(tracker.IsSuppressed("f0.txt", "HASH"));
+        Assert.IsFalse(tracker.IsSuppressed("shared.txt", "HASH"));
     }
 
     [TestMethod]

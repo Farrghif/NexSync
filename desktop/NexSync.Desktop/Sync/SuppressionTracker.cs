@@ -46,9 +46,10 @@ public sealed class SuppressionTracker : IRemoteWriteTracker
             _entries.TryRemove(new KeyValuePair<string, SuppressionEntry>(key, entry));
             return false;
         }
-        if (entry.ExpectedHash is null || currentHash is null)
-            return entry.ExpectedHash is null;
-        return string.Equals(entry.ExpectedHash, currentHash, StringComparison.OrdinalIgnoreCase);
+        if (currentHash is not null)
+            return entry.ExpectedHash is not null
+                && string.Equals(entry.ExpectedHash, currentHash, StringComparison.OrdinalIgnoreCase);
+        return entry.ExpectedHash is null;
     }
 
     private int _sweepCounter;
