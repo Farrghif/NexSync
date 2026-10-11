@@ -66,7 +66,7 @@ public sealed class DesktopAuthService : IDisposable
     private void ClearRefreshCookie()
     {
         _tokenStore.Clear();
-        foreach (Cookie cookie in _cookies.GetCookies(_baseUri))
+        foreach (Cookie cookie in _cookies.GetCookies(new Uri(_baseUri, "api/auth/")))
             cookie.Expired = true;
     }
 

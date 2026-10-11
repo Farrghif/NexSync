@@ -205,11 +205,13 @@ public sealed class DesktopAuthServiceTests
         var handler = new StubHandler(req =>
             req.RequestUri!.AbsolutePath.EndsWith("/api/auth/logout")
                 ? new HttpResponseMessage(HttpStatusCode.NoContent)
-                : JsonResponse(HttpStatusCode.OK, new
-                {
-                    accessToken = "jwt-abc",
-                    user = new { id = Guid.NewGuid(), email = "u@x.dev", fullName = "U" }
-                }));
+                : req.RequestUri!.AbsolutePath.EndsWith("/api/auth/refresh")
+                    ? new HttpResponseMessage(HttpStatusCode.Unauthorized)
+                    : JsonResponse(HttpStatusCode.OK, new
+                    {
+                        accessToken = "jwt-abc",
+                        user = new { id = Guid.NewGuid(), email = "u@x.dev", fullName = "U" }
+                    }));
         var dir = TempDir();
         using var auth = new DesktopAuthService("http://localhost:5000", dir, handler);
         await auth.LoginAsync("u@x.dev", "password123");
@@ -220,6 +222,12 @@ public sealed class DesktopAuthServiceTests
         Assert.IsNull(auth.DeviceId);
         Assert.IsFalse(File.Exists(Path.Combine(dir, "refresh-token.dat")));
         Assert.IsFalse(File.Exists(Path.Combine(dir, "device.json")));
+        Assert.IsFalse(File.Exists(Path.Combine(dir, "device-registration-op.txt")));
+
+        using var req = new HttpRequestMessage(HttpMethod.Post, "api/auth/refresh");
+        req.Headers.Add("X-CSRF", "1");
+        using var res = await auth.SendWithAuthAsync(req, allowRefresh: false);
+        Assert.AreEqual(HttpStatusCode.Unauthorized, res.StatusCode);
     }
 
     [TestMethod]
@@ -257,9 +265,7 @@ public sealed class DesktopAuthServiceTests
             await auth.LoginAsync("u@x.dev", "password123");
             Assert.IsTrue(auth.IsSignedIn);
         }
-        foreach (var f in Directory.GetFiles(dir, "*", SearchOption.AllDirectories))
-            System.Diagnostics.Debug.WriteLine("FILE: " + f);
-        Assert.IsTrue(File.Exists(Path.Combine(dir, "refresh-token.dat")), "refresh-token.dat missing; files: " + string.Join(",", Directory.GetFiles(dir, "*", SearchOption.AllDirectories)));
+        Assert.IsTrue(File.Exists(Path.Combine(dir, "refresh-token.dat")));
 
         using (var restarted = new DesktopAuthService("http://localhost:5000", dir, handler))
         {
@@ -273,6 +279,9 @@ public sealed class DesktopAuthServiceTests
             using var res2 = await restarted.SendWithAuthAsync(req2, allowRefresh: true);
             Assert.AreEqual(HttpStatusCode.OK, res2.StatusCode);
         }
+
+        var rotated = new NexSync.Desktop.Auth.SecureTokenStore(Path.Combine(dir, "refresh-token.dat")).Load();
+        Assert.AreEqual("rt-456", rotated);
     }
 
     private static async Task<System.Text.Json.JsonDocument?> ApiDocAsync(HttpResponseMessage res)
