@@ -181,21 +181,38 @@ public sealed class FolderWatcherTests
         var full = Path.Combine(_root, "locked.bin");
         var payload = new byte[8192];
         new Random(42).NextBytes(payload);
-        var release = new ManualResetEventSlim(false);
+        using var release = new ManualResetEventSlim(false);
+        using var entered = new ManualResetEventSlim(false);
         var writer = new Thread(() =>
         {
             using var fs = new FileStream(full, FileMode.Create, FileAccess.Write, FileShare.None);
             fs.Write(payload, 0, payload.Length);
             fs.Flush();
-            release.Wait(TimeSpan.FromSeconds(5));
+            entered.Set();
+            Assert.IsTrue(release.Wait(TimeSpan.FromSeconds(15)));
         });
         writer.Start();
-        Thread.Sleep(300);
-        var sw = System.Diagnostics.Stopwatch.StartNew();
+        Assert.IsTrue(entered.Wait(TimeSpan.FromSeconds(5)));
+
+        Exception? workerError = null;
+        var worker = new Thread(() =>
+        {
+            try
+            {
+                watcher.ProcessPathForTest(full);
+            }
+            catch (Exception ex)
+            {
+                workerError = ex;
+            }
+        });
+        worker.Start();
+        Thread.Sleep(1000);
+        Assert.IsTrue(worker.IsAlive, "ProcessPath must wait for the lock instead of skipping or failing.");
         release.Set();
+        Assert.IsTrue(worker.Join(TimeSpan.FromSeconds(15)));
         writer.Join(TimeSpan.FromSeconds(10));
-        watcher.ProcessPathForTest(full);
-        sw.Stop();
+        Assert.IsNull(workerError);
 
         var local = new LocalFileRepository(_db!.Connection).GetByPath("locked.bin");
         Assert.IsNotNull(local);
