@@ -53,6 +53,17 @@ public sealed class LocalFileRepository(SqliteConnection connection)
         return Map(reader);
     }
 
+    public List<LocalFileRow> GetAll(SqliteTransaction? tx = null)
+    {
+        using var cmd = connection.CreateCommand();
+        if (tx is not null) cmd.Transaction = tx;
+        cmd.CommandText = "SELECT RelativePath, ServerFileId, ServerFolderId, Hash, Size, LastAppliedSequence, UpdatedAt FROM LocalFiles ORDER BY RelativePath;";
+        using var reader = cmd.ExecuteReader();
+        var result = new List<LocalFileRow>();
+        while (reader.Read()) result.Add(Map(reader));
+        return result;
+    }
+
     public List<LocalFileRow> GetByFolderPath(string folderRelativePath, SqliteTransaction? tx = null)
     {
         var prefix = LocalPath.Canonicalize(folderRelativePath) + "/";

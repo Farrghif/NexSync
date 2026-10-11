@@ -76,6 +76,14 @@ public sealed class PendingOperationRepository(SqliteConnection connection)
         cmd.ExecuteNonQuery();
     }
 
+    public void ClearAll(SqliteTransaction? tx = null)
+    {
+        using var cmd = connection.CreateCommand();
+        if (tx is not null) cmd.Transaction = tx;
+        cmd.CommandText = "DELETE FROM PendingOperations;";
+        cmd.ExecuteNonQuery();
+    }
+
     private static PendingOperationRow Map(SqliteDataReader r) => new(
         Guid.Parse(r.GetString(0)),
         Enum.Parse<PendingOpType>(r.GetString(1)),
