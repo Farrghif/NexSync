@@ -33,6 +33,9 @@ public sealed class RecoveryService(
     private readonly SyncStateRepository _state = new(db.Connection);
 
     public async Task<ReconcileOutcome> ReconcileAsync(CancellationToken ct = default)
+        => await ReconcileAsync(RecoveryTestHooks.None, ct);
+
+    public async Task<ReconcileOutcome> ReconcileAsync(RecoveryTestHooks hooks, CancellationToken ct = default)
     {
         var manifest = await FetchManifestAsync(ct);
         if (manifest is null)
@@ -44,6 +47,8 @@ public sealed class RecoveryService(
         try
         {
             ReconcileFolders(manifest.Folders, tx);
+            if (hooks == RecoveryTestHooks.FailAfterManifest)
+                throw new InvalidOperationException("Injected mid-transaction failure.");
             ReconcileFiles(manifest.Files, tx);
             var fresh = ScanDisk();
             CleanupStaleRows(fresh, manifest, tx);
@@ -58,6 +63,12 @@ public sealed class RecoveryService(
             throw;
         }
         return ReconcileOutcome.Converged;
+    }
+
+    public enum RecoveryTestHooks
+    {
+        None,
+        FailAfterManifest
     }
 
     private sealed record ManifestEntry(
@@ -185,19 +196,9 @@ public sealed class RecoveryService(
                 r.ServerFolderId == folder.Id && !string.Equals(r.RelativePath, path, StringComparison.OrdinalIgnoreCase));
             if (stale is not null)
             {
-                try
-                {
-                    var staleFull = Path.Combine(localRoot, stale.RelativePath.Replace('/', Path.DirectorySeparatorChar));
-                    var newFull = Path.Combine(localRoot, path.Replace('/', Path.DirectorySeparatorChar));
-                    if (Directory.Exists(staleFull) && !Directory.Exists(newFull))
-                    {
-                        Directory.CreateDirectory(Path.GetDirectoryName(newFull)!);
-                        Directory.Move(staleFull, newFull);
-                    }
-                }
-                catch (IOException) { }
-                catch (UnauthorizedAccessException) { }
-                _folders.Delete(stale.RelativePath, tx);
+                var moved = MoveDirectoryIfPossible(stale.RelativePath, path);
+                if (moved || !Directory.Exists(Path.Combine(localRoot, stale.RelativePath.Replace('/', Path.DirectorySeparatorChar))))
+                    _folders.Delete(stale.RelativePath, tx);
             }
             _folders.Upsert(new LocalFolderRow(path, folder.Id, ParentOf(path),
                 0, DateTime.UtcNow), tx);
@@ -210,6 +211,50 @@ public sealed class RecoveryService(
             catch (IOException) { }
             catch (UnauthorizedAccessException) { }
         }
+        var manifestIds = new HashSet<Guid>(server.Select(f => f.Id));
+        foreach (var row in _folders.GetAll(tx))
+        {
+            if (row.ServerFolderId.HasValue && !manifestIds.Contains(row.ServerFolderId.Value))
+                _folders.Upsert(new LocalFolderRow(row.RelativePath, null, row.ParentRelativePath, row.LastAppliedSequence, DateTime.UtcNow), tx);
+        }
+    }
+
+    private bool MoveDirectoryIfPossible(string oldRelPath, string newRelPath)
+    {
+        try
+        {
+            var staleFull = Path.Combine(localRoot, oldRelPath.Replace('/', Path.DirectorySeparatorChar));
+            var newFull = Path.Combine(localRoot, newRelPath.Replace('/', Path.DirectorySeparatorChar));
+            if (string.Equals(staleFull, newFull, StringComparison.OrdinalIgnoreCase))
+                return true;
+            if (Directory.Exists(staleFull) && !Directory.Exists(newFull))
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(newFull)!);
+                Directory.Move(staleFull, newFull);
+            }
+            return !Directory.Exists(staleFull) || Directory.Exists(newFull);
+        }
+        catch (IOException) { return false; }
+        catch (UnauthorizedAccessException) { return false; }
+    }
+
+    private bool MoveFileIfPossible(string oldRelPath, string newRelPath)
+    {
+        try
+        {
+            var staleFull = Path.Combine(localRoot, oldRelPath.Replace('/', Path.DirectorySeparatorChar));
+            var newFull = Path.Combine(localRoot, newRelPath.Replace('/', Path.DirectorySeparatorChar));
+            if (string.Equals(staleFull, newFull, StringComparison.OrdinalIgnoreCase))
+                return true;
+            if (File.Exists(staleFull) && !File.Exists(newFull))
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(newFull)!);
+                File.Move(staleFull, newFull);
+            }
+            return !File.Exists(staleFull) || File.Exists(newFull);
+        }
+        catch (IOException) { return false; }
+        catch (UnauthorizedAccessException) { return false; }
     }
 
     private static string? ParentOf(string relPath)
@@ -267,19 +312,8 @@ public sealed class RecoveryService(
                 r.ServerFileId == file.Id && !string.Equals(r.RelativePath, path, StringComparison.OrdinalIgnoreCase));
             if (stale is not null)
             {
-                try
-                {
-                    var staleFull = Path.Combine(localRoot, stale.RelativePath.Replace('/', Path.DirectorySeparatorChar));
-                    var newFull = Path.Combine(localRoot, path.Replace('/', Path.DirectorySeparatorChar));
-                    if (File.Exists(staleFull) && !File.Exists(newFull))
-                    {
-                        Directory.CreateDirectory(Path.GetDirectoryName(newFull)!);
-                        File.Move(staleFull, newFull);
-                    }
-                }
-                catch (IOException) { }
-                catch (UnauthorizedAccessException) { }
-                _files.Delete(stale.RelativePath, tx);
+                if (MoveFileIfPossible(stale.RelativePath, path))
+                    _files.Delete(stale.RelativePath, tx);
             }
             _files.Upsert(new LocalFileRow(path, file.Id, file.FolderId, file.Hash, file.Size, 0, DateTime.UtcNow), tx);
         }

@@ -259,6 +259,10 @@ public sealed class RecoveryServiceTests
             files = Array.Empty<object>()
         }));
 
+        Assert.AreEqual(0, Pending(_db).Count,
+            "Precondition: without reconcile, the missed file produces zero ops (the divergence).");
+        Assert.IsNull(new LocalFileRepository(_db.Connection).GetByPath("missed.txt"));
+
         Assert.AreEqual(ReconcileOutcome.Converged, await svc.ReconcileAsync());
         var ops = Pending(_db);
         var create = ops.FirstOrDefault(o => o.OpType == PendingOpType.CreateFile && o.RelPath == "missed.txt");
@@ -298,5 +302,114 @@ public sealed class RecoveryServiceTests
         Assert.AreEqual("New/m.txt", rows[0].RelativePath);
         Assert.IsTrue(File.Exists(Path.Combine(_root, "New", "m.txt")));
         Assert.AreEqual(0, Pending(_db).Count);
+    }
+
+    [TestMethod]
+    public async Task ServerDeletedFolder_Demoted_NotGhosted()
+    {
+        var ghostId = Guid.NewGuid();
+        Directory.CreateDirectory(Path.Combine(_root, "Ghost"));
+        File.WriteAllText(Path.Combine(_root, "Ghost", "keep.txt"), "keep");
+        SeedFolder(_db, "Ghost", ghostId);
+        var svc = Create(_ => Json(HttpStatusCode.OK, new
+        {
+            snapshotCursor = 30L,
+            folders = Array.Empty<object>(),
+            files = Array.Empty<object>()
+        }));
+
+        Assert.AreEqual(ReconcileOutcome.Converged, await svc.ReconcileAsync());
+
+        var row = new LocalFolderRepository(_db.Connection).GetByPath("Ghost");
+        Assert.IsNotNull(row);
+        Assert.IsNull(row.ServerFolderId,
+            "Server-deleted folder still on disk must be demoted, not keep a ghost ID.");
+        var ops = Pending(_db);
+        Assert.AreEqual(1, ops.Count(o => o.OpType == PendingOpType.CreateFolder && o.RelPath == "Ghost"));
+        Assert.AreEqual(1, ops.Count(o => o.OpType == PendingOpType.CreateFile && o.RelPath == "Ghost/keep.txt"));
+    }
+
+    [TestMethod]
+    public async Task ServerDeletedFile_Demoted_NotGhosted()
+    {
+        var ghostId = Guid.NewGuid();
+        File.WriteAllText(Path.Combine(_root, "ghost.txt"), "ghost-bytes");
+        SeedFile(_db, "ghost.txt", ghostId, hash: "STALE");
+        var svc = Create(_ => Json(HttpStatusCode.OK, new
+        {
+            snapshotCursor = 31L,
+            folders = Array.Empty<object>(),
+            files = Array.Empty<object>()
+        }));
+
+        Assert.AreEqual(ReconcileOutcome.Converged, await svc.ReconcileAsync());
+
+        var row = new LocalFileRepository(_db.Connection).GetByPath("ghost.txt");
+        Assert.IsNotNull(row);
+        Assert.IsNull(row.ServerFileId,
+            "Server-deleted file still on disk must be demoted so its content re-uploads.");
+        var ops = Pending(_db);
+        Assert.AreEqual(1, ops.Count);
+        Assert.AreEqual(PendingOpType.CreateFile, ops[0].OpType);
+        Assert.IsNull(ops[0].ServerId);
+    }
+
+    [TestMethod]
+    public async Task ServerMovedFolder_UpdatesRow_NoDuplicateOp()
+    {
+        var folderId = Guid.NewGuid();
+        var subId = Guid.NewGuid();
+        SeedFolder(_db, "Before", folderId);
+        SeedFolder(_db, "Before/Sub", subId);
+        Directory.CreateDirectory(Path.Combine(_root, "Before", "Sub"));
+        var svc = Create(_ => Json(HttpStatusCode.OK, new
+        {
+            snapshotCursor = 32L,
+            folders = new[]
+            {
+                ManifestFolder(folderId, "After", null),
+                ManifestFolder(subId, "Sub", folderId)
+            },
+            files = Array.Empty<object>()
+        }));
+
+        Assert.AreEqual(ReconcileOutcome.Converged, await svc.ReconcileAsync());
+
+        var rows = new LocalFolderRepository(_db.Connection).GetAll()
+            .Where(f => f.ServerFolderId == folderId).ToList();
+        Assert.AreEqual(1, rows.Count);
+        Assert.AreEqual("After", rows[0].RelativePath);
+        Assert.AreEqual("After/Sub", new LocalFolderRepository(_db.Connection).GetByServerId(subId)?.RelativePath);
+        Assert.IsTrue(Directory.Exists(Path.Combine(_root, "After", "Sub")));
+        Assert.AreEqual(0, Pending(_db).Count);
+    }
+
+    [TestMethod]
+    public async Task MidTransactionFailure_RollsBackRowsPendingAndCursor()
+    {
+        SeedFolder(_db, "Stable", Guid.NewGuid());
+        var queue = new PendingQueueService(_db);
+        queue.Enqueue(PendingOpType.CreateFolder, "Stable");
+        new SyncStateRepository(_db.Connection).Set("LastPulledSequence", "50");
+        var beforeFolders = new LocalFolderRepository(_db.Connection).GetAll().Count;
+        var svc = Create(_ => Json(HttpStatusCode.OK, new
+        {
+            snapshotCursor = 51L,
+            folders = Array.Empty<object>(),
+            files = Array.Empty<object>()
+        }));
+
+        try
+        {
+            await svc.ReconcileAsync(RecoveryService.RecoveryTestHooks.FailAfterManifest);
+            Assert.Fail("Expected injected failure.");
+        }
+        catch (InvalidOperationException)
+        {
+        }
+
+        Assert.AreEqual(beforeFolders, new LocalFolderRepository(_db.Connection).GetAll().Count);
+        Assert.AreEqual(1, Pending(_db).Count);
+        Assert.AreEqual(50L, new SyncStateRepository(_db.Connection).GetSequence("LastPulledSequence"));
     }
 }
