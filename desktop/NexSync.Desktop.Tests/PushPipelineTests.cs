@@ -299,4 +299,131 @@ public sealed class PushPipelineTests
         Assert.AreEqual(1, runs);
         Assert.AreEqual(0, queue.CountPending());
     }
+
+    [TestMethod]
+    public async Task Push_401RefreshThenSuccess_CompletesWithSameOperationId()
+    {
+        var seenOpIds = new List<string?>();
+        var calls = 0;
+        var serverId = Guid.NewGuid();
+        var handler = new StubHandler(req =>
+        {
+            calls++;
+            var path = req.RequestUri!.AbsolutePath;
+            if (path.EndsWith("/api/auth/refresh"))
+                return Json(HttpStatusCode.OK, new { accessToken = "jwt-new" });
+            if (calls == 1)
+                return new HttpResponseMessage(HttpStatusCode.Unauthorized);
+            seenOpIds.Add(req.Headers.TryGetValues("X-Operation-Id", out var v) ? string.Join(",", v) : null);
+            return Json(HttpStatusCode.Created, new { id = serverId, name = "R" });
+        });
+        var auth = new DesktopAuthService("http://localhost:5000", Path.Combine(_dir, "auth"), handler);
+        var queue = new PendingQueueService(_db);
+        var push = new PushPipeline(_db, queue, auth, _root);
+        SeedFolder(_db, "R", null);
+        var opId = queue.Enqueue(PendingOpType.CreateFolder, "R");
+        var batch = queue.DequeueEligibleBatch(10);
+
+        var outcome = await push.PushAsync(batch[0]);
+
+        Assert.AreEqual(PushOutcome.Pushed, outcome);
+        Assert.AreEqual(1, seenOpIds.Count);
+        Assert.AreEqual(opId.ToString(), seenOpIds[0]);
+        Assert.AreEqual(0, queue.CountPending());
+    }
+
+    [TestMethod]
+    public async Task Push_429_KeepsOp_AndBackoffScheduleGrows()
+    {
+        var (queue, push, _) = Create(_ => new HttpResponseMessage((HttpStatusCode)429));
+        SeedFolder(_db, "T", null);
+        queue.Enqueue(PendingOpType.CreateFolder, "T");
+        var batch = queue.DequeueEligibleBatch(10);
+
+        var outcome = await push.PushAsync(batch[0]);
+
+        Assert.AreEqual(PushOutcome.TransientFailure, outcome);
+        Assert.AreEqual(1, queue.CountPending());
+        Assert.AreEqual(TimeSpan.FromSeconds(2), SyncCoordinator.ComputeBackoffDelay(1));
+        Assert.AreEqual(TimeSpan.FromSeconds(4), SyncCoordinator.ComputeBackoffDelay(2));
+        Assert.AreEqual(TimeSpan.FromSeconds(30), SyncCoordinator.ComputeBackoffDelay(10));
+    }
+
+    [TestMethod]
+    public async Task Push_CanceledTimeout_KeepsOpQueued()
+    {
+        var (queue, push, _) = Create(_ => throw new TaskCanceledException("simulated timeout"));
+        SeedFolder(_db, "Z", null);
+        queue.Enqueue(PendingOpType.CreateFolder, "Z");
+        var batch = queue.DequeueEligibleBatch(10);
+
+        var outcome = await push.PushAsync(batch[0]);
+
+        Assert.AreEqual(PushOutcome.TransientFailure, outcome);
+        Assert.AreEqual(1, queue.CountPending());
+    }
+
+    [TestMethod]
+    public async Task Push_SendsDeviceIdHeader()
+    {
+        HttpRequestMessage? seen = null;
+        var serverId = Guid.NewGuid();
+        var deviceId = Guid.NewGuid();
+        var authDir = Path.Combine(_dir, "auth-dev");
+        Directory.CreateDirectory(authDir);
+        File.WriteAllText(Path.Combine(authDir, "device.json"),
+            JsonSerializer.Serialize(new { deviceId = deviceId.ToString() }));
+        var handler = new StubHandler(req =>
+        {
+            seen = req;
+            return Json(HttpStatusCode.Created, new { id = serverId, name = "D" });
+        });
+        var auth = new DesktopAuthService("http://localhost:5000", authDir, handler);
+        var queue = new PendingQueueService(_db);
+        var push = new PushPipeline(_db, queue, auth, _root);
+        SeedFolder(_db, "D", null);
+        queue.Enqueue(PendingOpType.CreateFolder, "D");
+        var batch = queue.DequeueEligibleBatch(10);
+
+        var outcome = await push.PushAsync(batch[0]);
+
+        Assert.AreEqual(PushOutcome.Pushed, outcome);
+        Assert.IsNotNull(seen);
+        Assert.IsTrue(seen.Headers.Contains("X-Device-Id"));
+        Assert.AreEqual(deviceId.ToString(), string.Join(",", seen.Headers.GetValues("X-Device-Id")));
+    }
+
+    [TestMethod]
+    public async Task Coordinator_BoundedBatch_RespectsSize()
+    {
+        var (queue, push, _) = Create(_ => Json(HttpStatusCode.Created, new { id = Guid.NewGuid(), name = "B" }));
+        queue.Enqueue(PendingOpType.CreateFolder, "BB1");
+        queue.Enqueue(PendingOpType.CreateFolder, "BB2");
+        var coordinator = new SyncCoordinator(_db, queue, push, batchSize: 1);
+
+        var result = await coordinator.RunOnceAsync();
+
+        Assert.AreEqual(1, result.Attempted);
+        Assert.AreEqual(1, result.Pushed);
+        Assert.AreEqual(1, queue.CountPending());
+    }
+
+    [TestMethod]
+    public async Task Coordinator_BackoffSleepsBetweenTransientFailures()
+    {
+        var sleeps = new List<TimeSpan>();
+        var (queue, push, _) = Create(_ => new HttpResponseMessage(HttpStatusCode.InternalServerError));
+        SeedFolder(_db, "BO", null);
+        queue.Enqueue(PendingOpType.CreateFolder, "BO1");
+        queue.Enqueue(PendingOpType.CreateFolder, "BO2");
+        var coordinator = new SyncCoordinator(_db, queue, push, batchSize: 10,
+            sleeper: (delay, _) => { sleeps.Add(delay); return Task.CompletedTask; });
+
+        var result = await coordinator.RunOnceAsync();
+
+        Assert.AreEqual(2, result.Attempted);
+        Assert.AreEqual(1, sleeps.Count);
+        Assert.AreEqual(TimeSpan.FromSeconds(2), sleeps[0]);
+        Assert.AreEqual(2, queue.CountPending());
+    }
 }

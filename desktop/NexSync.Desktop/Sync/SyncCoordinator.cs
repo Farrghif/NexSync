@@ -28,10 +28,20 @@ public sealed class SyncCoordinator(
     LocalDb db,
     PendingQueueService queue,
     PushPipeline push,
-    int batchSize = 50)
+    int batchSize = 50,
+    Func<TimeSpan, CancellationToken, Task>? sleeper = null)
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
     private int _pendingSignals;
+    private readonly Func<TimeSpan, CancellationToken, Task> _sleep =
+        sleeper ?? ((delay, ct) => Task.Delay(delay, ct));
+
+    public static TimeSpan ComputeBackoffDelay(int consecutiveFailures)
+    {
+        if (consecutiveFailures <= 0) return TimeSpan.Zero;
+        var seconds = Math.Min(2 * (1 << Math.Min(consecutiveFailures - 1, 4)), 30);
+        return TimeSpan.FromSeconds(seconds);
+    }
 
     public void RequestSync() => Interlocked.Increment(ref _pendingSignals);
 
@@ -45,24 +55,30 @@ public sealed class SyncCoordinator(
         try
         {
             Interlocked.Exchange(ref _pendingSignals, 0);
+            queue.RequeueFailed();
             var batch = queue.DequeueEligibleBatch(batchSize);
             var attempted = 0;
             var pushed = 0;
             var conflicts = 0;
             var stoppedByAuth = false;
             var needsReconcile = false;
+            var consecutiveFailures = 0;
             foreach (var op in batch)
             {
                 ct.ThrowIfCancellationRequested();
+                if (consecutiveFailures > 0)
+                    await _sleep(ComputeBackoffDelay(consecutiveFailures), ct);
                 attempted++;
                 var outcome = await push.PushAsync(op, ct);
                 switch (outcome)
                 {
                     case PushOutcome.Pushed:
                         pushed++;
+                        consecutiveFailures = 0;
                         break;
                     case PushOutcome.Conflict:
                         conflicts++;
+                        consecutiveFailures = 0;
                         break;
                     case PushOutcome.AuthFailed:
                     case PushOutcome.Forbidden:
@@ -70,8 +86,10 @@ public sealed class SyncCoordinator(
                         return new PushBatchResult(attempted, pushed, conflicts, true, needsReconcile);
                     case PushOutcome.NeedsReconcile:
                         needsReconcile = true;
+                        consecutiveFailures = 0;
                         break;
                     case PushOutcome.TransientFailure:
+                        consecutiveFailures++;
                         break;
                 }
             }

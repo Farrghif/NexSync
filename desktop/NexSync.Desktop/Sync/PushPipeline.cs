@@ -31,8 +31,8 @@ public sealed class PushPipeline(
                 PendingOpType.CreateFile or PendingOpType.ModifyFile => await PushUploadAsync(op, ct),
                 PendingOpType.DeleteFolder => await PushDeleteAsync(op, isFile: false, ct),
                 PendingOpType.DeleteFile => await PushDeleteAsync(op, isFile: true, ct),
-                PendingOpType.MoveFolder => await PushMoveAsync(op, isFile: false, ct),
-                PendingOpType.MoveFile or PendingOpType.RenameFolder => await PushMoveAsync(op, isFile: true, ct),
+                PendingOpType.MoveFolder or PendingOpType.RenameFolder => await PushMoveAsync(op, isFile: false, ct),
+                PendingOpType.MoveFile => await PushMoveAsync(op, isFile: true, ct),
                 _ => PushOutcome.TransientFailure
             };
         }
@@ -117,7 +117,10 @@ public sealed class PushPipeline(
         using var res = await auth.SendWithAuthAsync(req, allowRefresh: true, ct);
         if (res.StatusCode == HttpStatusCode.NotFound)
         {
-            queue.Complete(op, success: true);
+            using var goneTx = db.BeginTransaction();
+            queue.Complete(op, success: true, goneTx);
+            _processed.Record(new ProcessedOperationRow(op.OperationId, "404 already-gone", DateTime.UtcNow), goneTx);
+            goneTx.Commit();
             return PushOutcome.Pushed;
         }
         return await HandleEmptyMutationResponseAsync(op, res,
@@ -125,6 +128,7 @@ public sealed class PushPipeline(
             {
                 using var tx = db.BeginTransaction();
                 queue.Complete(op, success: true, tx);
+                _processed.Record(new ProcessedOperationRow(op.OperationId, "204 deleted", DateTime.UtcNow), tx);
                 tx.Commit();
             }, ct);
     }
@@ -217,7 +221,10 @@ public sealed class PushPipeline(
             case 200:
             case 201:
             case 204:
-                using (var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync(ct)))
+                var body = await res.Content.ReadAsStringAsync(ct);
+                if (string.IsNullOrWhiteSpace(body))
+                    return PushOutcome.TransientFailure;
+                using (var doc = JsonDocument.Parse(body))
                     await onSuccess(doc);
                 return PushOutcome.Pushed;
             case 401:
