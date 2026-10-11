@@ -36,7 +36,17 @@ function browserDeviceName(): string {
 
 export async function ensureWebDevice(userId: string): Promise<string> {
   const existing = localStorage.getItem(deviceKey(userId));
-  if (existing) return existing;
+  if (existing) {
+    try {
+      const res = await api.get<Array<{ deviceId: string; status: string }>>("/devices");
+      const found = res.data.find((d) => d.deviceId === existing);
+      if (found && found.status === "ACTIVE") return existing;
+    } catch {
+      return existing;
+    }
+    localStorage.removeItem(deviceKey(userId));
+    localStorage.removeItem(deviceOpKey(userId));
+  }
 
   let opId = localStorage.getItem(deviceOpKey(userId));
   if (!opId) {
@@ -75,6 +85,7 @@ export async function logout(): Promise<void> {
   } finally {
     setAccessToken(null);
     sessionStorage.removeItem("nexsync:userId");
+    sessionStorage.removeItem("nexsync:user");
   }
 }
 
