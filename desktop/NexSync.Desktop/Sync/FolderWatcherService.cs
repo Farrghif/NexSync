@@ -42,7 +42,7 @@ public sealed class FolderWatcherService : IDisposable
         _watcher.Renamed += (_, e) =>
         {
             Cancel(e.OldFullPath);
-            Schedule(e.FullPath);
+            Schedule(e.FullPath, oldFullPath: e.OldFullPath);
         };
         _watcher.Error += (_, _) =>
         {
@@ -68,19 +68,21 @@ public sealed class FolderWatcherService : IDisposable
         return name.EndsWith(TempSuffix, StringComparison.OrdinalIgnoreCase);
     }
 
-    private void Schedule(string fullPath)
+    private void Schedule(string fullPath, string? oldFullPath = null)
     {
         if (IsInternalPath(_root, fullPath))
             return;
-        var timer = _debounce.AddOrUpdate(fullPath,
-            _ => new Timer(ProcessPath, fullPath, DebounceDelay, Timeout.InfiniteTimeSpan),
+        var payload = new PendingPath(fullPath, oldFullPath);
+        _ = _debounce.AddOrUpdate(fullPath,
+            _ => new Timer(ProcessPath, payload, DebounceDelay, Timeout.InfiniteTimeSpan),
             (_, existing) =>
             {
                 existing.Change(DebounceDelay, Timeout.InfiniteTimeSpan);
                 return existing;
             });
-        _ = timer;
     }
+
+    private sealed record PendingPath(string FullPath, string? OldFullPath);
 
     private void Cancel(string fullPath)
     {
@@ -88,19 +90,25 @@ public sealed class FolderWatcherService : IDisposable
             timer.Dispose();
     }
 
-    public void ProcessPathForTest(string fullPath)
+    public void ProcessPathForTest(string fullPath, string? oldFullPath = null)
     {
-        ProcessPathInternal(fullPath);
+        ProcessPathInternal(fullPath, oldFullPath);
+    }
+
+    public void SimulateErrorForTest()
+    {
+        RecoveryRequired = true;
+        RecoveryRequested?.Invoke();
     }
 
     private void ProcessPath(object? state)
     {
-        var fullPath = (string)state!;
-        Cancel(fullPath);
-        ProcessPathInternal(fullPath);
+        var payload = (PendingPath)state!;
+        Cancel(payload.FullPath);
+        ProcessPathInternal(payload.FullPath, payload.OldFullPath);
     }
 
-    private void ProcessPathInternal(string fullPath)
+    private void ProcessPathInternal(string fullPath, string? oldFullPath = null)
     {
         if (IsInternalPath(_root, fullPath))
             return;
@@ -112,6 +120,24 @@ public sealed class FolderWatcherService : IDisposable
         catch (ArgumentException)
         {
             return;
+        }
+
+        if (oldFullPath is not null && !IsInternalPath(_root, oldFullPath))
+        {
+            string oldRel;
+            try
+            {
+                oldRel = LocalPath.Canonicalize(Path.GetRelativePath(_root, oldFullPath).Replace('\\', '/'));
+            }
+            catch (ArgumentException)
+            {
+                oldRel = string.Empty;
+            }
+            if (!string.IsNullOrEmpty(oldRel) && !string.Equals(oldRel, relPath, StringComparison.OrdinalIgnoreCase))
+            {
+                EnqueueRename(oldRel, relPath, fullPath);
+                return;
+            }
         }
 
         var isDir = Directory.Exists(fullPath);
@@ -209,6 +235,33 @@ public sealed class FolderWatcherService : IDisposable
             relPath, null, null, null, 0, PendingOpStatus.Pending, DateTime.UtcNow));
     }
 
+    private void EnqueueRename(string oldRelPath, string newRelPath, string newFullPath)
+    {
+        var folders = new LocalFolderRepository(_db.Connection);
+        var files = new LocalFileRepository(_db.Connection);
+        var pending = new PendingOperationRepository(_db.Connection);
+        var folder = folders.GetByPath(oldRelPath);
+        if (folder is not null && Directory.Exists(newFullPath))
+        {
+            var parent = Path.GetDirectoryName(newRelPath.Replace('/', Path.DirectorySeparatorChar));
+            var parentCanon = string.IsNullOrEmpty(parent) ? null : LocalPath.Canonicalize(parent.Replace('\\', '/'));
+            folders.Delete(oldRelPath);
+            folders.Upsert(new LocalFolderRow(newRelPath, folder.ServerFolderId, parentCanon, folder.LastAppliedSequence, DateTime.UtcNow));
+            pending.Enqueue(new PendingOperationRow(Guid.NewGuid(), PendingOpType.MoveFolder,
+                oldRelPath, newRelPath, folder.ServerFolderId, null, 0, PendingOpStatus.Pending, DateTime.UtcNow));
+            return;
+        }
+        var file = files.GetByPath(oldRelPath);
+        if (file is not null && File.Exists(newFullPath))
+        {
+            files.Delete(oldRelPath);
+            files.Upsert(new LocalFileRow(newRelPath, file.ServerFileId, file.ServerFolderId, file.Hash, file.Size, file.LastAppliedSequence, DateTime.UtcNow));
+            pending.Enqueue(new PendingOperationRow(Guid.NewGuid(), PendingOpType.MoveFile,
+                oldRelPath, newRelPath, file.ServerFileId, null, 0, PendingOpStatus.Pending, DateTime.UtcNow));
+            return;
+        }
+    }
+
     private void EnqueueFileSeen(string relPath, string fullPath)
     {
         string hash;
@@ -232,7 +285,7 @@ public sealed class FolderWatcherService : IDisposable
         var existing = files.GetByPath(relPath);
         if (existing is not null && string.Equals(existing.Hash, hash, StringComparison.OrdinalIgnoreCase))
             return;
-        var op = existing is null || existing.ServerFileId is null ? PendingOpType.CreateFile : PendingOpType.ModifyFile;
+        var op = existing is null ? PendingOpType.CreateFile : PendingOpType.ModifyFile;
         files.Upsert(new LocalFileRow(relPath, existing?.ServerFileId, existing?.ServerFolderId, hash, size, existing?.LastAppliedSequence ?? 0, DateTime.UtcNow));
         pending.Enqueue(new PendingOperationRow(Guid.NewGuid(), op,
             relPath, null, existing?.ServerFileId, null, 0, PendingOpStatus.Pending, DateTime.UtcNow));

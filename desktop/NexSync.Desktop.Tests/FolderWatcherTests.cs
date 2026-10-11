@@ -71,19 +71,138 @@ public sealed class FolderWatcherTests
     }
 
     [TestMethod]
-    public void ModifiedContent_QueuesModifyOp()
+    public void ModifiedContent_QueuesModifyOpWithUpdatedHash()
     {
         using var watcher = CreateWatcher();
         var full = Path.Combine(_root, "mod.txt");
         File.WriteAllText(full, "v1");
         watcher.ProcessPathForTest(full);
+        var hashBefore = new LocalFileRepository(_db!.Connection).GetByPath("mod.txt")!.Hash;
         File.WriteAllText(full, "v2-longer");
         watcher.ProcessPathForTest(full);
+
+        var batch = new PendingOperationRepository(_db.Connection).DequeueBatch(10);
+        Assert.AreEqual(2, batch.Count);
+        Assert.AreEqual(PendingOpType.CreateFile, batch[0].OpType);
+        Assert.AreEqual(PendingOpType.ModifyFile, batch[1].OpType);
+        var hashAfter = new LocalFileRepository(_db.Connection).GetByPath("mod.txt")!.Hash;
+        Assert.AreNotEqual(hashBefore, hashAfter);
+    }
+
+    [TestMethod]
+    public void RenamedFile_EnqueuesSingleMoveAndTransfersRow()
+    {
+        using var watcher = CreateWatcher();
+        var oldFull = Path.Combine(_root, "old.txt");
+        var newFull = Path.Combine(_root, "new.txt");
+        File.WriteAllText(oldFull, "content");
+        watcher.ProcessPathForTest(oldFull);
+        File.Move(oldFull, newFull);
+        watcher.ProcessPathForTest(newFull, oldFull);
 
         var batch = new PendingOperationRepository(_db!.Connection).DequeueBatch(10);
         Assert.AreEqual(2, batch.Count);
         Assert.AreEqual(PendingOpType.CreateFile, batch[0].OpType);
-        Assert.AreEqual(PendingOpType.CreateFile, batch[1].OpType);
+        Assert.AreEqual(PendingOpType.MoveFile, batch[1].OpType);
+        Assert.AreEqual("old.txt", batch[1].RelPath);
+        Assert.AreEqual("new.txt", batch[1].NewRelPath);
+        Assert.IsNull(new LocalFileRepository(_db.Connection).GetByPath("old.txt"));
+        Assert.IsNotNull(new LocalFileRepository(_db.Connection).GetByPath("new.txt"));
+    }
+
+    [TestMethod]
+    public void RenamedFolder_EnqueuesSingleMoveAndTransfersRow()
+    {
+        using var watcher = CreateWatcher();
+        var oldDir = Path.Combine(_root, "OldDir");
+        var newDir = Path.Combine(_root, "NewDir");
+        Directory.CreateDirectory(oldDir);
+        watcher.ProcessPathForTest(oldDir);
+        Directory.Move(oldDir, newDir);
+        watcher.ProcessPathForTest(newDir, oldDir);
+
+        var batch = new PendingOperationRepository(_db!.Connection).DequeueBatch(10);
+        Assert.AreEqual(2, batch.Count);
+        Assert.AreEqual(PendingOpType.CreateFolder, batch[0].OpType);
+        Assert.AreEqual(PendingOpType.MoveFolder, batch[1].OpType);
+        Assert.IsNull(new LocalFolderRepository(_db.Connection).GetByPath("OldDir"));
+        Assert.IsNotNull(new LocalFolderRepository(_db.Connection).GetByPath("NewDir"));
+    }
+
+    [TestMethod]
+    public void DeletedFolder_QueuesDeleteAndDropsLocalRow()
+    {
+        using var watcher = CreateWatcher();
+        var dir = Path.Combine(_root, "Temp");
+        Directory.CreateDirectory(dir);
+        watcher.ProcessPathForTest(dir);
+        Directory.Delete(dir);
+        watcher.ProcessPathForTest(dir);
+
+        var batch = new PendingOperationRepository(_db!.Connection).DequeueBatch(10);
+        Assert.AreEqual(2, batch.Count);
+        Assert.AreEqual(PendingOpType.DeleteFolder, batch[1].OpType);
+        Assert.IsNull(new LocalFolderRepository(_db.Connection).GetByPath("Temp"));
+    }
+
+    [TestMethod]
+    public void OutsideRootPath_ProducesNoOp()
+    {
+        using var watcher = CreateWatcher();
+        var outside = Path.Combine(Path.GetTempPath(), "nexsync-outside-" + Guid.NewGuid().ToString("N") + ".txt");
+        try
+        {
+            File.WriteAllText(outside, "x");
+            Assert.IsTrue(FolderWatcherService.IsInternalPath(_root, outside));
+            watcher.ProcessPathForTest(outside);
+            Assert.AreEqual(0, new PendingOperationRepository(_db!.Connection).CountPending());
+        }
+        finally
+        {
+            File.Delete(outside);
+        }
+    }
+
+    [TestMethod]
+    public void SimulatedError_SetsRecoveryFlagAndFiresEvent()
+    {
+        using var watcher = CreateWatcher();
+        var fired = 0;
+        watcher.RecoveryRequested += () => Interlocked.Increment(ref fired);
+        watcher.SimulateErrorForTest();
+        Assert.IsTrue(watcher.RecoveryRequired);
+        Assert.AreEqual(1, fired);
+    }
+
+    [TestMethod]
+    public void LockedFile_WaitsForReleaseThenQueuesCorrectHash()
+    {
+        using var watcher = CreateWatcher();
+        var full = Path.Combine(_root, "locked.bin");
+        var payload = new byte[8192];
+        new Random(42).NextBytes(payload);
+        var release = new ManualResetEventSlim(false);
+        var writer = new Thread(() =>
+        {
+            using var fs = new FileStream(full, FileMode.Create, FileAccess.Write, FileShare.None);
+            fs.Write(payload, 0, payload.Length);
+            fs.Flush();
+            release.Wait(TimeSpan.FromSeconds(5));
+        });
+        writer.Start();
+        Thread.Sleep(300);
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        release.Set();
+        writer.Join(TimeSpan.FromSeconds(10));
+        watcher.ProcessPathForTest(full);
+        sw.Stop();
+
+        var local = new LocalFileRepository(_db!.Connection).GetByPath("locked.bin");
+        Assert.IsNotNull(local);
+        Assert.AreEqual(payload.Length, local.Size);
+        using var sha = System.Security.Cryptography.SHA256.Create();
+        Assert.AreEqual(Convert.ToHexString(sha.ComputeHash(payload)), local.Hash);
+        Assert.AreEqual(1, new PendingOperationRepository(_db.Connection).CountPending());
     }
 
     [TestMethod]
