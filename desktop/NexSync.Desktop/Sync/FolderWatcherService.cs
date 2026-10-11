@@ -25,10 +25,13 @@ public sealed class FolderWatcherService : IDisposable
     public bool RecoveryRequired { get; private set; }
     public event Action? RecoveryRequested;
 
-    public FolderWatcherService(string root, LocalDb db)
+    private readonly IRemoteWriteTracker _suppression;
+
+    public FolderWatcherService(string root, LocalDb db, IRemoteWriteTracker? suppression = null)
     {
         _root = Path.GetFullPath(root);
         _db = db;
+        _suppression = suppression ?? NullRemoteWriteTracker.Instance;
         _watcher = new FileSystemWatcher(_root)
         {
             IncludeSubdirectories = true,
@@ -202,6 +205,8 @@ public sealed class FolderWatcherService : IDisposable
 
     private void EnqueueDelete(string relPath)
     {
+        if (_suppression.IsSuppressed(relPath, currentHash: null))
+            return;
         var folders = new LocalFolderRepository(_db.Connection);
         var files = new LocalFileRepository(_db.Connection);
         var pending = new PendingOperationRepository(_db.Connection);
@@ -224,6 +229,8 @@ public sealed class FolderWatcherService : IDisposable
 
     private void EnqueueFolderSeen(string relPath)
     {
+        if (_suppression.IsSuppressed(relPath, currentHash: null))
+            return;
         var folders = new LocalFolderRepository(_db.Connection);
         var pending = new PendingOperationRepository(_db.Connection);
         if (folders.GetByPath(relPath) is not null)
@@ -237,6 +244,9 @@ public sealed class FolderWatcherService : IDisposable
 
     private void EnqueueRename(string oldRelPath, string newRelPath, string newFullPath)
     {
+        if (_suppression.IsSuppressed(oldRelPath, currentHash: null)
+            || _suppression.IsSuppressed(newRelPath, currentHash: null))
+            return;
         var folders = new LocalFolderRepository(_db.Connection);
         var files = new LocalFileRepository(_db.Connection);
         var pending = new PendingOperationRepository(_db.Connection);
@@ -280,6 +290,8 @@ public sealed class FolderWatcherService : IDisposable
             RecoveryRequested?.Invoke();
             return;
         }
+        if (_suppression.IsSuppressed(relPath, hash))
+            return;
         var files = new LocalFileRepository(_db.Connection);
         var pending = new PendingOperationRepository(_db.Connection);
         var existing = files.GetByPath(relPath);
