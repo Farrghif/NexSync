@@ -8,4 +8,6 @@
   <Folder Name="/tests/">
     <Project Path="tests/NexSync.Tests/NexSync.Tests.csproj" />
   </Folder>
+  <Project Path="../desktop/NexSync.Desktop.Tests/NexSync.Desktop.Tests.csproj" />
+  <Project Path="../desktop/NexSync.Desktop/NexSync.Desktop.csproj" />
 </Solution>
