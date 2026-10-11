@@ -172,11 +172,19 @@ public sealed class DesktopAuthService : IDisposable
         return id;
     }
 
+    private static bool IsDeviceRegistrationEndpoint(HttpRequestMessage request)
+    {
+        var path = request.RequestUri?.IsAbsoluteUri == true
+            ? request.RequestUri.AbsolutePath
+            : request.RequestUri?.OriginalString ?? string.Empty;
+        return path.EndsWith("/api/devices", StringComparison.OrdinalIgnoreCase);
+    }
+
     public async Task<HttpResponseMessage> SendWithAuthAsync(HttpRequestMessage request, bool allowRefresh, CancellationToken ct = default)
     {
         if (_accessToken is not null)
             request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _accessToken);
-        if (DeviceId is not null && !request.Headers.Contains("X-Device-Id") && !request.RequestUri!.AbsolutePath.EndsWith("/api/devices"))
+        if (DeviceId is not null && !request.Headers.Contains("X-Device-Id") && !IsDeviceRegistrationEndpoint(request))
             request.Headers.Add("X-Device-Id", DeviceId);
         var res = await SendAsync(request, ct);
         if (res.StatusCode != HttpStatusCode.Unauthorized || !allowRefresh)

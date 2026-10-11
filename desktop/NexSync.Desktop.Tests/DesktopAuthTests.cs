@@ -202,20 +202,41 @@ public sealed class DesktopAuthServiceTests
     [TestMethod]
     public async Task Logout_ClearsSessionLocally()
     {
+        var deviceId = Guid.NewGuid();
         var handler = new StubHandler(req =>
-            req.RequestUri!.AbsolutePath.EndsWith("/api/auth/logout")
-                ? new HttpResponseMessage(HttpStatusCode.NoContent)
-                : req.RequestUri!.AbsolutePath.EndsWith("/api/auth/refresh")
-                    ? new HttpResponseMessage(HttpStatusCode.Unauthorized)
-                    : JsonResponse(HttpStatusCode.OK, new
-                    {
-                        accessToken = "jwt-abc",
-                        user = new { id = Guid.NewGuid(), email = "u@x.dev", fullName = "U" }
-                    }));
+        {
+            if (req.RequestUri!.AbsolutePath.EndsWith("/api/auth/logout"))
+                return new HttpResponseMessage(HttpStatusCode.NoContent);
+            if (req.RequestUri!.AbsolutePath.EndsWith("/api/auth/refresh"))
+            {
+                var sent = req.Headers.TryGetValues("Cookie", out var v) ? string.Join(";", v) : string.Empty;
+                if (sent.Contains("refreshToken="))
+                    return JsonResponse(HttpStatusCode.OK, new { accessToken = "jwt-after-logout" });
+                return new HttpResponseMessage(HttpStatusCode.Unauthorized);
+            }
+            if (req.RequestUri!.AbsolutePath.EndsWith("/api/devices"))
+                return JsonResponse(HttpStatusCode.Created, new
+                {
+                    deviceId,
+                    name = "PC",
+                    platform = "Windows",
+                    status = "ACTIVE",
+                    createdAt = DateTime.UtcNow,
+                    lastSeenAt = DateTime.UtcNow,
+                    revokedAt = (DateTime?)null
+                });
+            return JsonResponse(HttpStatusCode.OK, new
+            {
+                accessToken = "jwt-abc",
+                user = new { id = Guid.NewGuid(), email = "u@x.dev", fullName = "U" }
+            });
+        });
         var dir = TempDir();
         using var auth = new DesktopAuthService("http://localhost:5000", dir, handler);
         await auth.LoginAsync("u@x.dev", "password123");
         Assert.IsTrue(auth.IsSignedIn);
+        Assert.AreEqual(deviceId, await auth.EnsureDeviceRegisteredAsync("PC"));
+        Assert.IsTrue(File.Exists(Path.Combine(dir, "device-registration-op.txt")));
         await auth.LogoutAsync();
         Assert.IsFalse(auth.IsSignedIn);
         Assert.IsNull(auth.CurrentUser);
