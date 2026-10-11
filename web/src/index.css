@@ -1,0 +1,119 @@
+:root {
+  font-family: system-ui, "Segoe UI", Roboto, sans-serif;
+  color: #1a1a1a;
+  background: #fff;
+}
+
+body {
+  margin: 0;
+}
+
+.auth-page {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  background: #f4f4f6;
+}
+
+.auth-card {
+  background: #fff;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 2rem;
+  width: 340px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.auth-card h1 {
+  margin: 0;
+  font-size: 1.5rem;
+}
+
+.auth-card label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.9rem;
+}
+
+.auth-card input {
+  padding: 0.5rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 1rem;
+}
+
+.auth-card button {
+  padding: 0.6rem;
+  border: none;
+  border-radius: 4px;
+  background: #5b5bd6;
+  color: #fff;
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+.auth-card button:disabled {
+  opacity: 0.6;
+}
+
+.muted {
+  color: #666;
+  font-size: 0.9rem;
+}
+
+.error {
+  color: #b3261e;
+  font-size: 0.9rem;
+}
+
+.dash {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+.dash header {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  border-bottom: 1px solid #e0e0e0;
+  padding-bottom: 0.75rem;
+}
+
+.crumbs {
+  margin: 0.75rem 0;
+}
+
+.toolbar {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.link {
+  background: none;
+  border: none;
+  color: #1a56db;
+  cursor: pointer;
+  padding: 0;
+  font-size: 1rem;
+}
+
+button {
+  cursor: pointer;
+}
+
+ul {
+  list-style: none;
+  padding: 0;
+}
+
+li {
+  padding: 0.35rem 0;
+  border-bottom: 1px solid #f0f0f0;
+}
