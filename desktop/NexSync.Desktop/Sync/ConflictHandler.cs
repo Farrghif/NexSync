@@ -95,9 +95,12 @@ public sealed class ConflictHandler(
         var isFile = File.Exists(fullPath);
         if (!isDir && !isFile)
             return true;
-        var fingerprint = isFile
-            ? ComputeFileFingerprint(fullPath)
-            : ComputeDirectoryFingerprint(fullPath);
+        var isEmptyDir = isDir && !Directory.EnumerateFileSystemEntries(fullPath).Any();
+        var fingerprint = isEmptyDir
+            ? "empty-dir"
+            : isFile
+                ? ComputeFileFingerprint(fullPath)
+                : ComputeDirectoryFingerprint(fullPath);
         if (fingerprint is null)
         {
             LastError = $"Cannot read '{relPath}' to compute preservation fingerprint.";

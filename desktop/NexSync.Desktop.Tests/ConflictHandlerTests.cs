@@ -343,19 +343,54 @@ public sealed class ConflictHandlerTests
     }
 
     [TestMethod]
-    public void ProductionWiring_SyncEngine_PassesSharedConflictHandler()
+    public async Task ProductionWiring_SyncEngine_SharesOneConflictHandlerEndToEnd()
     {
-        var handler = new StubHandler(_ => Json(HttpStatusCode.OK, new { ok = true }));
+        var fileId = Guid.NewGuid();
+        var wiringRoot = Path.Combine(_dir, "wiring-files");
+        var handler = new StubHandler(req =>
+        {
+            var url = req.RequestUri!.ToString();
+            if (url.Contains("/api/files/upload") && req.Method == HttpMethod.Post)
+                return Json(HttpStatusCode.Conflict, new { code = "FILE_NAME_CONFLICT" });
+            if (url.Contains("/api/files/") && req.Method == HttpMethod.Post)
+                return Json(HttpStatusCode.Created, new
+                {
+                    id = fileId,
+                    name = "shared.txt",
+                    hash = "abc",
+                    size = 13L,
+                    contentType = "text/plain"
+                });
+            return Json(HttpStatusCode.OK, new
+            {
+                changes = new[] { Change(31, "File", fileId, "Deleted", "shared.txt", null) },
+                nextCursor = 31L,
+                hasMore = false,
+                highWaterCursor = 31L
+            });
+        });
         var auth = new DesktopAuthService("http://localhost:5000", Path.Combine(_dir, "auth-wiring"), handler);
         using var db = new LocalDb(Path.Combine(_dir, ".nexsync-wiring", "local.db"));
-        using var engine = SyncEngineFactory.Create(db, auth, Path.Combine(_dir, "wiring-files"));
+        using var engine = SyncEngineFactory.Create(db, auth, wiringRoot);
 
-        Assert.IsNotNull(engine.Coordinator);
-        Assert.IsNotNull(engine.Pull);
-        Assert.IsNotNull(engine.Push);
-        Assert.IsNotNull(engine.Conflicts);
-        Assert.IsNotNull(engine.Watcher);
-        Assert.IsNotNull(engine.Recovery);
+        Directory.CreateDirectory(wiringRoot);
+        File.WriteAllText(Path.Combine(wiringRoot, "shared.txt"), "wired-content");
+        new LocalFileRepository(db.Connection).Upsert(
+            new LocalFileRow("shared.txt", fileId, null, "STALE", 13, 0, DateTime.UtcNow));
+        engine.Queue.Enqueue(PendingOpType.ModifyFile, "shared.txt", serverId: fileId);
+
+        var pushResult = await engine.Coordinator.RunOnceAsync();
+        Assert.AreEqual(1, pushResult.Conflicts);
+        var conflictCopies = Directory.GetFiles(
+            Path.Combine(wiringRoot, ".nexsync", "Recovery", "Conflicts"), "*", SearchOption.AllDirectories);
+        Assert.AreEqual(1, conflictCopies.Length);
+
+        var pullOutcome = await engine.Pull.PullAndApplyAsync(until: 31);
+        Assert.AreEqual(PullApplyOutcome.Applied, pullOutcome);
+        var deletedCopies = Directory.GetFiles(
+            Path.Combine(wiringRoot, ".nexsync", "Recovery", "DeletedByServer"), "*", SearchOption.AllDirectories);
+        Assert.AreEqual(1, deletedCopies.Length);
+        Assert.AreEqual("wired-content", File.ReadAllText(deletedCopies[0]));
     }
 
     [TestMethod]
