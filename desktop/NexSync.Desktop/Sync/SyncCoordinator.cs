@@ -29,7 +29,8 @@ public sealed class SyncCoordinator(
     PendingQueueService queue,
     PushPipeline push,
     int batchSize = 50,
-    Func<TimeSpan, CancellationToken, Task>? sleeper = null)
+    Func<TimeSpan, CancellationToken, Task>? sleeper = null,
+    ConflictHandler? conflicts = null)
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
     private int _pendingSignals;
@@ -59,7 +60,7 @@ public sealed class SyncCoordinator(
             var batch = queue.DequeueEligibleBatch(batchSize);
             var attempted = 0;
             var pushed = 0;
-            var conflicts = 0;
+            var conflictCount = 0;
             var stoppedByAuth = false;
             var needsReconcile = false;
             var consecutiveFailures = 0;
@@ -77,13 +78,14 @@ public sealed class SyncCoordinator(
                         consecutiveFailures = 0;
                         break;
                     case PushOutcome.Conflict:
-                        conflicts++;
+                        conflictCount++;
                         consecutiveFailures = 0;
+                        conflicts?.PreservePushConflict(op);
                         break;
                     case PushOutcome.AuthFailed:
                     case PushOutcome.Forbidden:
                         stoppedByAuth = true;
-                        return new PushBatchResult(attempted, pushed, conflicts, true, needsReconcile);
+                        return new PushBatchResult(attempted, pushed, conflictCount, true, needsReconcile);
                     case PushOutcome.NeedsReconcile:
                         needsReconcile = true;
                         consecutiveFailures = 0;
@@ -93,7 +95,7 @@ public sealed class SyncCoordinator(
                         break;
                 }
             }
-            return new PushBatchResult(attempted, pushed, conflicts, stoppedByAuth, needsReconcile);
+            return new PushBatchResult(attempted, pushed, conflictCount, stoppedByAuth, needsReconcile);
         }
         finally
         {

@@ -50,6 +50,46 @@ public sealed class PendingOperationRepository(SqliteConnection connection)
         return Convert.ToInt32(cmd.ExecuteScalar());
     }
 
+    public List<PendingOperationRow> GetByPath(string relPath, SqliteTransaction? tx = null)
+    {
+        using var cmd = connection.CreateCommand();
+        if (tx is not null) cmd.Transaction = tx;
+        cmd.CommandText = """
+            SELECT OperationId, OpType, RelPath, NewRelPath, ServerId, ParentServerId, RetryCount, Status, CreatedAt
+            FROM PendingOperations WHERE RelPath = $path OR NewRelPath = $path ORDER BY CreatedAt, OperationId;
+            """;
+        cmd.Parameters.AddWithValue("$path", LocalPath.Canonicalize(relPath));
+        using var reader = cmd.ExecuteReader();
+        var result = new List<PendingOperationRow>();
+        while (reader.Read()) result.Add(Map(reader));
+        return result;
+    }
+
+    public List<PendingOperationRow> GetOpsWithDestinationUnder(string relPath, SqliteTransaction? tx = null)
+    {
+        var prefix = LocalPath.Canonicalize(relPath) + "/";
+        using var cmd = connection.CreateCommand();
+        if (tx is not null) cmd.Transaction = tx;
+        cmd.CommandText = """
+            SELECT OperationId, OpType, RelPath, NewRelPath, ServerId, ParentServerId, RetryCount, Status, CreatedAt
+            FROM PendingOperations WHERE NewRelPath LIKE $prefix || '%' ESCAPE '\' ORDER BY CreatedAt, OperationId;
+            """;
+        cmd.Parameters.AddWithValue("$prefix", prefix.Replace(@"\", @"\\").Replace("%", @"\%").Replace("_", @"\_"));
+        using var reader = cmd.ExecuteReader();
+        var result = new List<PendingOperationRow>();
+        while (reader.Read()) result.Add(Map(reader));
+        return result;
+    }
+
+    public void DeleteByPath(string relPath, SqliteTransaction? tx = null)
+    {
+        using var cmd = connection.CreateCommand();
+        if (tx is not null) cmd.Transaction = tx;
+        cmd.CommandText = "DELETE FROM PendingOperations WHERE RelPath = $path OR NewRelPath = $path;";
+        cmd.Parameters.AddWithValue("$path", LocalPath.Canonicalize(relPath));
+        cmd.ExecuteNonQuery();
+    }
+
     public void MarkDone(Guid operationId, SqliteTransaction? tx = null)
     {
         using var cmd = connection.CreateCommand();

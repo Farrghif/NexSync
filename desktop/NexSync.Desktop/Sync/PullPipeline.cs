@@ -45,12 +45,14 @@ public sealed class PullPipeline(
     PendingQueueService queue,
     DesktopAuthService auth,
     string localRoot,
-    IRemoteWriteTracker? suppression = null)
+    IRemoteWriteTracker? suppression = null,
+    ConflictHandler? conflicts = null)
 {
     private readonly LocalFolderRepository _folders = new(db.Connection);
     private readonly LocalFileRepository _files = new(db.Connection);
     private readonly SyncStateRepository _state = new(db.Connection);
     private readonly IRemoteWriteTracker _suppression = suppression ?? NullRemoteWriteTracker.Instance;
+    private readonly ConflictHandler? conflicts = conflicts;
 
     public const string CursorKey = "LastPulledSequence";
     private const int PullLimit = 500;
@@ -288,6 +290,12 @@ public sealed class PullPipeline(
         var row = _files.GetByServerId(change.EntityId);
         if (row is not null)
         {
+            if (conflicts is not null && conflicts.HasUnpushedChanges(row.RelativePath))
+            {
+                if (!conflicts.PreserveForRemoteDelete(row.RelativePath, out _))
+                    return false;
+                conflicts.CancelOpsUnder(row.RelativePath);
+            }
             var fullPath = ToFullPath(row.RelativePath);
             if (File.Exists(fullPath))
             {
@@ -374,6 +382,12 @@ public sealed class PullPipeline(
         var row = _folders.GetByServerId(change.EntityId);
         if (row is not null)
         {
+            if (conflicts is not null && conflicts.HasUnpushedChanges(row.RelativePath))
+            {
+                if (!conflicts.PreserveForRemoteDelete(row.RelativePath, out _))
+                    return false;
+                conflicts.CancelOpsUnder(row.RelativePath);
+            }
             var fullPath = ToFullPath(row.RelativePath);
             if (Directory.Exists(fullPath))
             {
