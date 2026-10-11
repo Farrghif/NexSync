@@ -10,6 +10,17 @@ storage/
 backend/src/NexSync.API/storage/
 */storage/temp/
 
+## Desktop local sync state (SQLite + tokens + recovery, NEVER commit)
+.nexsync/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite-journal
+*.dat
+%LOCALAPPDATA%/NexSync/
+
 ## API run logs
 api.log
 api-err.log
@@ -19,9 +30,14 @@ node_modules/
 web/dist/
 web/.vite/
 .env
-.env.local
+.env.*
+!.env.example
 
 ## OS / editor
 .DS_Store
 Thumbs.db
 *.swp
+.idea/
+*.suo
+*.userprefs
+coverage/
