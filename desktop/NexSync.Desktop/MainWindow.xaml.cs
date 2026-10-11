@@ -7,30 +7,36 @@ namespace NexSync.Desktop;
 
 public partial class MainWindow : System.Windows.Window
 {
-    private readonly AppState _state = new();
-    private readonly ContentControl _host = new();
+    private readonly DesktopServices _services;
 
     public MainWindow()
+        : this(new DesktopServices())
     {
+    }
+
+    public MainWindow(DesktopServices services)
+    {
+        _services = services;
         Title = "NexSync";
         Width = 560;
         Height = 520;
-        Content = _host;
-        _state.Changed += Render;
+        Content = new ContentControl();
+        _services.State.Changed += Render;
         Render();
+        Closed += (_, _) => _services.Dispose();
     }
 
-    public void SignalSyncNow() => _state.RequestSync();
+    public void SignalSyncNow() => _services.State.RequestSync();
 
     private void Render()
     {
-        WpfUserControl view = _state.CurrentScreen switch
+        WpfUserControl view = _services.State.CurrentScreen switch
         {
-            AppScreen.Login => new LoginView(_state),
-            AppScreen.Setup => new SetupView(_state),
-            AppScreen.Status => new StatusView(_state),
-            _ => new LoginView(_state)
+            AppScreen.Login => new LoginView(_services.State, _services.Auth),
+            AppScreen.Setup => new SetupView(_services.State),
+            AppScreen.Status => new StatusView(_services.State, _services.Auth),
+            _ => new LoginView(_services.State, _services.Auth)
         };
-        _host.Content = view;
+        ((ContentControl)Content).Content = view;
     }
 }

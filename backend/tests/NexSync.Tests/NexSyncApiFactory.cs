@@ -48,7 +48,18 @@ public sealed class NexSyncApiFactory : WebApplicationFactory<Program>
 
     public new async Task DisposeAsync()
     {
-        await _db.DisposeAsync();
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            try
+            {
+                await _db.DisposeAsync();
+                break;
+            }
+            catch (TimeoutException) when (attempt < 2)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(5 * (attempt + 1)));
+            }
+        }
         if (Directory.Exists(StorageRoot)) Directory.Delete(StorageRoot, true);
         await base.DisposeAsync();
     }

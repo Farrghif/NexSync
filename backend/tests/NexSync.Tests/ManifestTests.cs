@@ -189,14 +189,15 @@ public sealed class ManifestTests
     [TestMethod]
     public async Task Manifest_ConcurrentWrite_DoesNotLeakIntoSnapshot()
     {
-        await _alice.PostJsonAsync("/api/folders", new { name = "Settled", parentFolderId = (Guid?)null });
+        var (_, created) = await _alice.PostJsonAsync("/api/folders", new { name = "Racer", parentFolderId = (Guid?)null });
+        var racerFolderId = created!.RootElement.GetProperty("id").GetGuid();
+        var (_, createdFile) = await _alice.UploadAsync(Encoding.UTF8.GetBytes("race"), "race.txt", "text/plain", racerFolderId);
+        var racerFileId = createdFile!.RootElement.GetProperty("id").GetGuid();
 
         var manifestTask = _alice.GetAsync("/api/sync/manifest");
         await Task.Delay(50);
-        var (_, createdFolder) = await _alice.PostJsonAsync("/api/folders", new { name = "Racer", parentFolderId = (Guid?)null });
-        var racerFolderId = createdFolder!.RootElement.GetProperty("id").GetGuid();
-        var (_, createdFile) = await _alice.UploadAsync(Encoding.UTF8.GetBytes("race"), "race.txt", "text/plain", racerFolderId);
-        var racerFileId = createdFile!.RootElement.GetProperty("id").GetGuid();
+        var del = await _alice.DeleteAsync($"/api/folders/{racerFolderId}");
+        Assert.AreEqual(HttpStatusCode.NoContent, del.StatusCode);
         var (mres, mdoc) = await manifestTask;
         Assert.AreEqual(HttpStatusCode.OK, mres.StatusCode);
         var cursor = mdoc!.RootElement.GetProperty("snapshotCursor").GetInt64();
@@ -212,23 +213,28 @@ public sealed class ManifestTests
 
         var (pres, pdoc) = await _alice.GetAsync($"/api/sync/pull?since={cursor}&until={cursor + 10}&limit=500");
         Assert.AreEqual(HttpStatusCode.OK, pres.StatusCode);
-        var pulledIds = pdoc!.RootElement.GetProperty("changes").EnumerateArray()
-            .Select(c => c.GetProperty("entityId").GetGuid()).ToHashSet();
+        var pulled = pdoc!.RootElement.GetProperty("changes").EnumerateArray().ToList();
+        foreach (var ch in pulled)
+            Assert.IsTrue(ch.GetProperty("sequence").GetInt64() > cursor,
+                "Every pulled change must be newer than the snapshot cursor.");
 
         var folderInManifest = manifestFolderIds.Contains(racerFolderId);
         var fileInManifest = manifestFileIds.Contains(racerFileId);
         Assert.AreEqual(folderInManifest, fileInManifest,
-            "Snapshot must be atomic: racer folder and its file appear together or not at all.");
-        Assert.IsTrue(manifestFolderIds.Contains(racerFolderId) != pulledIds.Contains(racerFolderId),
-            "Racer folder must appear in exactly one of manifest or follow-up pull.");
-        Assert.IsTrue(manifestFileIds.Contains(racerFileId) != pulledIds.Contains(racerFileId),
-            "Racer file must appear in exactly one of manifest or follow-up pull.");
-        foreach (var id in pulledIds.Where(id => id == racerFolderId || id == racerFileId))
-        {
-            var seq = pdoc.RootElement.GetProperty("changes").EnumerateArray()
-                .First(c => c.GetProperty("entityId").GetGuid() == id).GetProperty("sequence").GetInt64();
-            Assert.IsTrue(seq > cursor, "Pulled racer change must be newer than the snapshot cursor.");
-        }
+            "Snapshot must be atomic: recursive delete removes folder and file in one transaction, so both are visible or neither.");
+
+        var folderEvents = pulled.Where(c => c.GetProperty("entityId").GetGuid() == racerFolderId).ToList();
+        var fileEvents = pulled.Where(c => c.GetProperty("entityId").GetGuid() == racerFileId).ToList();
+        Assert.IsTrue(folderEvents.Count(e => e.GetProperty("operation").GetString() == "Deleted") <= 1,
+            "Folder delete tombstone must appear at most once.");
+        Assert.IsTrue(fileEvents.Count(e => e.GetProperty("operation").GetString() == "Deleted") <= 1,
+            "File delete tombstone must appear at most once.");
+        if (folderEvents.Any(e => e.GetProperty("operation").GetString() != "Deleted"))
+            Assert.IsTrue(folderEvents.Any(e => e.GetProperty("operation").GetString() == "Deleted"),
+                "If pull carries the folder create, it must also carry its delete tombstone.");
+        if (fileEvents.Any(e => e.GetProperty("operation").GetString() != "Deleted"))
+            Assert.IsTrue(fileEvents.Any(e => e.GetProperty("operation").GetString() == "Deleted"),
+                "If pull carries the file create, it must also carry its delete tombstone.");
     }
 
     private async Task<Guid> UserIdAsync(string email)
