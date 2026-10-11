@@ -387,7 +387,8 @@ public sealed class RecoveryServiceTests
     [TestMethod]
     public async Task MidTransactionFailure_RollsBackRowsPendingAndCursor()
     {
-        SeedFolder(_db, "Stable", Guid.NewGuid());
+        var stableId = Guid.NewGuid();
+        SeedFolder(_db, "Stable", stableId);
         var queue = new PendingQueueService(_db);
         queue.Enqueue(PendingOpType.CreateFolder, "Stable");
         new SyncStateRepository(_db.Connection).Set("LastPulledSequence", "50");
@@ -409,6 +410,8 @@ public sealed class RecoveryServiceTests
         }
 
         Assert.AreEqual(beforeFolders, new LocalFolderRepository(_db.Connection).GetAll().Count);
+        Assert.AreEqual(stableId, new LocalFolderRepository(_db.Connection).GetByPath("Stable")?.ServerFolderId,
+            "Rollback must preserve row values, not just row counts (pre-throw demotion must not leak).");
         Assert.AreEqual(1, Pending(_db).Count);
         Assert.AreEqual(50L, new SyncStateRepository(_db.Connection).GetSequence("LastPulledSequence"));
     }
