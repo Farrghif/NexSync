@@ -34,6 +34,13 @@ function browserDeviceName(): string {
   return `${browser} - ${os}`;
 }
 
+export class DeviceRevokedError extends Error {
+  constructor() {
+    super("This device has been revoked. Please enroll this browser as a new device to continue.");
+    this.name = "DeviceRevokedError";
+  }
+}
+
 export async function ensureWebDevice(userId: string): Promise<string> {
   const existing = localStorage.getItem(deviceKey(userId));
   if (existing) {
@@ -41,13 +48,22 @@ export async function ensureWebDevice(userId: string): Promise<string> {
       const res = await api.get<Array<{ deviceId: string; status: string }>>("/devices");
       const found = res.data.find((d) => d.deviceId === existing);
       if (found && found.status === "ACTIVE") return existing;
-    } catch {
+      if (found) {
+        localStorage.removeItem(deviceKey(userId));
+        localStorage.removeItem(deviceOpKey(userId));
+        throw new DeviceRevokedError();
+      }
+      return existing;
+    } catch (e) {
+      if (e instanceof DeviceRevokedError) throw e;
       return existing;
     }
-    localStorage.removeItem(deviceKey(userId));
-    localStorage.removeItem(deviceOpKey(userId));
   }
 
+  return enrollNewDevice(userId);
+}
+
+export async function enrollNewDevice(userId: string): Promise<string> {
   let opId = localStorage.getItem(deviceOpKey(userId));
   if (!opId) {
     opId = newOperationId();

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
+import { DeviceRevokedError, currentUserId, enrollNewDevice } from "../api/auth";
 
 function errorMessage(e: unknown): string {
   if (typeof e === "object" && e !== null && "response" in e) {
@@ -17,13 +18,34 @@ export function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [revoked, setRevoked] = useState(false);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
     setError("");
+    setRevoked(false);
     try {
       await login(email, password);
+      nav("/");
+    } catch (err) {
+      if (err instanceof DeviceRevokedError) {
+        setRevoked(true);
+        setError(err.message);
+      } else {
+        setError(errorMessage(err));
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const enroll = async () => {
+    const userId = currentUserId();
+    if (!userId) return;
+    setBusy(true);
+    try {
+      await enrollNewDevice(userId);
       nav("/");
     } catch (err) {
       setError(errorMessage(err));
@@ -46,6 +68,11 @@ export function LoginPage() {
           <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
         </label>
         {error && <p className="error">{error}</p>}
+        {revoked && (
+          <button type="button" disabled={busy} onClick={() => void enroll()}>
+            Enroll this browser as a new device
+          </button>
+        )}
         <button type="submit" disabled={busy}>{busy ? "Signing in…" : "Sign in"}</button>
         <p className="muted">No account? <Link to="/register">Register</Link></p>
       </form>
