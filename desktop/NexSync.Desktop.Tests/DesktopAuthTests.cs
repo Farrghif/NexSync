@@ -225,16 +225,19 @@ public sealed class DesktopAuthServiceTests
                     lastSeenAt = DateTime.UtcNow,
                     revokedAt = (DateTime?)null
                 });
-            return JsonResponse(HttpStatusCode.OK, new
+            var loginRes = JsonResponse(HttpStatusCode.OK, new
             {
                 accessToken = "jwt-abc",
                 user = new { id = Guid.NewGuid(), email = "u@x.dev", fullName = "U" }
             });
+            loginRes.Headers.Add("Set-Cookie", "refreshToken=rt-logout-test; Path=/api/auth; HttpOnly");
+            return loginRes;
         });
         var dir = TempDir();
         using var auth = new DesktopAuthService("http://localhost:5000", dir, handler);
         await auth.LoginAsync("u@x.dev", "password123");
         Assert.IsTrue(auth.IsSignedIn);
+        Assert.IsTrue(File.Exists(Path.Combine(dir, "refresh-token.dat")));
         Assert.AreEqual(deviceId, await auth.EnsureDeviceRegisteredAsync("PC"));
         Assert.IsTrue(File.Exists(Path.Combine(dir, "device-registration-op.txt")));
         await auth.LogoutAsync();
