@@ -1,6 +1,8 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace NexSync.Tests;
 
@@ -128,6 +130,112 @@ public sealed class ManifestTests
         var (res2, _) = await _alice.GetAsync("/api/sync/manifest");
         Assert.AreEqual(HttpStatusCode.Forbidden, res2.StatusCode);
         _alice.DeviceId = before;
+    }
+
+    [TestMethod]
+    public async Task Manifest_RevokedDevice_Returns403()
+    {
+        var doomed = new ApiClient(_factory.CreateClient());
+        await doomed.RegisterAsync("man-doomed@nexsync.dev", "password123", "Doomed");
+        doomed.DeviceId = await RegisterDeviceAsync(doomed, "Doomed PC");
+        await using (var scope = _factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<NexSync.Infrastructure.Data.AppDbContext>();
+            var dev = await db.Devices.FindAsync(doomed.DeviceId!.Value);
+            dev!.RevokedAt = DateTime.UtcNow;
+            await db.SaveChangesAsync();
+        }
+        var (res, _) = await doomed.GetAsync("/api/sync/manifest");
+        Assert.AreEqual(HttpStatusCode.Forbidden, res.StatusCode);
+    }
+
+    [TestMethod]
+    public async Task Manifest_IncludesLegacyDataWithoutChangeLog()
+    {
+        var aliceId = await UserIdAsync("man-alice@nexsync.dev");
+        var legacyFolderId = Guid.NewGuid();
+        var legacyFileId = Guid.NewGuid();
+        await using (var scope = _factory.Services.CreateAsyncScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<NexSync.Infrastructure.Data.AppDbContext>();
+            db.Folders.Add(new NexSync.Domain.Entities.Folder
+            {
+                Id = legacyFolderId, Name = "Legacy", ParentFolderId = null, OwnerId = aliceId,
+                CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow
+            });
+            db.Files.Add(new NexSync.Domain.Entities.FileEntry
+            {
+                Id = legacyFileId, Name = "old.bin", FolderId = legacyFolderId, OwnerId = aliceId,
+                Hash = new string('a', 64), Size = 10, ContentType = "application/octet-stream",
+                StoragePath = "/nonexistent", CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var (res, doc) = await _alice.GetAsync("/api/sync/manifest");
+        Assert.AreEqual(HttpStatusCode.OK, res.StatusCode);
+        var root = doc!.RootElement;
+        Assert.AreEqual(0L, root.GetProperty("snapshotCursor").GetInt64());
+        var folderIds = root.GetProperty("folders").EnumerateArray().Select(f => f.GetProperty("id").GetGuid()).ToList();
+        Assert.IsTrue(folderIds.Contains(legacyFolderId));
+        var file = root.GetProperty("files").EnumerateArray().First(f => f.GetProperty("id").GetGuid() == legacyFileId);
+        Assert.AreEqual("old.bin", file.GetProperty("name").GetString());
+
+        var (pres, pdoc) = await _alice.GetAsync("/api/sync/pull?since=0&until=10&limit=500");
+        Assert.AreEqual(HttpStatusCode.OK, pres.StatusCode);
+        Assert.AreEqual(0, pdoc!.RootElement.GetProperty("changes").GetArrayLength());
+    }
+
+    [TestMethod]
+    public async Task Manifest_ConcurrentWrite_DoesNotLeakIntoSnapshot()
+    {
+        await _alice.PostJsonAsync("/api/folders", new { name = "Settled", parentFolderId = (Guid?)null });
+
+        var manifestTask = _alice.GetAsync("/api/sync/manifest");
+        await Task.Delay(50);
+        var (_, createdFolder) = await _alice.PostJsonAsync("/api/folders", new { name = "Racer", parentFolderId = (Guid?)null });
+        var racerFolderId = createdFolder!.RootElement.GetProperty("id").GetGuid();
+        var (_, createdFile) = await _alice.UploadAsync(Encoding.UTF8.GetBytes("race"), "race.txt", "text/plain", racerFolderId);
+        var racerFileId = createdFile!.RootElement.GetProperty("id").GetGuid();
+        var (mres, mdoc) = await manifestTask;
+        Assert.AreEqual(HttpStatusCode.OK, mres.StatusCode);
+        var cursor = mdoc!.RootElement.GetProperty("snapshotCursor").GetInt64();
+        var manifestFolderIds = mdoc.RootElement.GetProperty("folders").EnumerateArray()
+            .Select(f => f.GetProperty("id").GetGuid()).ToHashSet();
+        var manifestFileIds = mdoc.RootElement.GetProperty("files").EnumerateArray()
+            .Select(f => f.GetProperty("id").GetGuid()).ToHashSet();
+
+        var (mres2, mdoc2) = await _alice.GetAsync("/api/sync/manifest");
+        Assert.AreEqual(HttpStatusCode.OK, mres2.StatusCode);
+        Assert.AreEqual(mdoc2!.RootElement.GetProperty("snapshotCursor").GetInt64(),
+            (await _alice.GetAsync("/api/sync/cursor")).Item2!.RootElement.GetProperty("highWaterCursor").GetInt64());
+
+        var (pres, pdoc) = await _alice.GetAsync($"/api/sync/pull?since={cursor}&until={cursor + 10}&limit=500");
+        Assert.AreEqual(HttpStatusCode.OK, pres.StatusCode);
+        var pulledIds = pdoc!.RootElement.GetProperty("changes").EnumerateArray()
+            .Select(c => c.GetProperty("entityId").GetGuid()).ToHashSet();
+
+        var folderInManifest = manifestFolderIds.Contains(racerFolderId);
+        var fileInManifest = manifestFileIds.Contains(racerFileId);
+        Assert.AreEqual(folderInManifest, fileInManifest,
+            "Snapshot must be atomic: racer folder and its file appear together or not at all.");
+        Assert.IsTrue(manifestFolderIds.Contains(racerFolderId) != pulledIds.Contains(racerFolderId),
+            "Racer folder must appear in exactly one of manifest or follow-up pull.");
+        Assert.IsTrue(manifestFileIds.Contains(racerFileId) != pulledIds.Contains(racerFileId),
+            "Racer file must appear in exactly one of manifest or follow-up pull.");
+        foreach (var id in pulledIds.Where(id => id == racerFolderId || id == racerFileId))
+        {
+            var seq = pdoc.RootElement.GetProperty("changes").EnumerateArray()
+                .First(c => c.GetProperty("entityId").GetGuid() == id).GetProperty("sequence").GetInt64();
+            Assert.IsTrue(seq > cursor, "Pulled racer change must be newer than the snapshot cursor.");
+        }
+    }
+
+    private async Task<Guid> UserIdAsync(string email)
+    {
+        await using var scope = _factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<NexSync.Infrastructure.Data.AppDbContext>();
+        return (await db.Users.SingleAsync(u => u.Email == email)).Id;
     }
 
     [TestMethod]
