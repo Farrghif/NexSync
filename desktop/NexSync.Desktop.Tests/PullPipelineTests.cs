@@ -454,7 +454,8 @@ public sealed class PullPipelineTests
         var row = new LocalFileRepository(_db.Connection).GetByServerId(fileId);
         Assert.AreEqual("Dst/f.txt", row?.RelativePath);
         Assert.AreEqual(dstId, row?.ServerFolderId);
-        Assert.IsTrue(File.Exists(Path.Combine(_root, "Dst", "f.txt")));
+        Assert.AreEqual("x", File.ReadAllText(Path.Combine(_root, "Dst", "f.txt")));
+        Assert.IsFalse(File.Exists(Path.Combine(_root, "Src", "f.txt")));
     }
 
     [TestMethod]
@@ -521,6 +522,7 @@ public sealed class PullPipelineTests
             });
         });
         Assert.AreEqual(PullApplyOutcome.Applied, await pull3.PullAndApplyAsync(until: 10));
+        Assert.AreEqual("z", File.ReadAllText(Path.Combine(_root, "n.txt")));
     }
 
     [TestMethod]
