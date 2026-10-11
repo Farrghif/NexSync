@@ -244,15 +244,8 @@ public sealed class ConflictHandler(
         using var tx = db.BeginTransaction();
         try
         {
-            CancelOpsAtPath(relPath, tx);
-            var folder = _folders.GetByPath(relPath, tx);
-            if (folder is not null)
-            {
-                foreach (var child in _folders.GetDescendants(relPath, tx))
-                    CancelOpsAtPath(child.RelativePath, tx);
-                foreach (var childFile in _files.GetByFolderPath(relPath, tx))
-                    CancelOpsAtPath(childFile.RelativePath, tx);
-            }
+            foreach (var op in _pending.GetOpsUnder(relPath, tx))
+                _pending.MarkDone(op.OperationId, tx);
             tx.Commit();
         }
         catch
@@ -260,14 +253,6 @@ public sealed class ConflictHandler(
             tx.Rollback();
             throw;
         }
-    }
-
-    private void CancelOpsAtPath(string path, Microsoft.Data.Sqlite.SqliteTransaction tx)
-    {
-        foreach (var op in _pending.GetByPath(path, tx))
-            _pending.MarkDone(op.OperationId, tx);
-        foreach (var op in _pending.GetOpsWithDestinationUnder(path, tx))
-            _pending.MarkDone(op.OperationId, tx);
     }
 
     public List<PendingOperationRow> GetOpsFor(string relPath) => _pending.GetByPath(relPath);
