@@ -68,11 +68,16 @@ public sealed class PendingQueueService(LocalDb db)
     public void Complete(PendingOperationRow op, bool success)
     {
         using var tx = db.BeginTransaction();
+        Complete(op, success, tx);
+        tx.Commit();
+    }
+
+    public void Complete(PendingOperationRow op, bool success, SqliteTransaction tx)
+    {
         if (success)
             _pending.MarkDone(op.OperationId, tx);
         else
             _pending.MarkFailed(op.OperationId, tx);
-        tx.Commit();
     }
 
     public int CountPending() => _pending.CountPending();
