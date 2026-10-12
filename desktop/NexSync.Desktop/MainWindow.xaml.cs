@@ -33,7 +33,7 @@ public partial class MainWindow : System.Windows.Window
         WpfUserControl view = _services.State.CurrentScreen switch
         {
             AppScreen.Login => new LoginView(_services.State, _services.Auth),
-            AppScreen.Setup => new SetupView(_services.State),
+            AppScreen.Setup => new SetupView(_services.State, _services.ForLocalRoot),
             AppScreen.Status => new StatusView(_services.State, _services.Auth),
             _ => new LoginView(_services.State, _services.Auth)
         };
