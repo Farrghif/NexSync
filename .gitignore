@@ -25,6 +25,10 @@ backend/src/NexSync.API/storage/
 api.log
 api-err.log
 
+## Ad-hoc test output logs
+testout.txt
+testout*.txt
+
 ## Node / web
 node_modules/
 web/dist/
