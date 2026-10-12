@@ -335,6 +335,12 @@ public sealed class ConflictHandlerTests
         Assert.IsNull(directResult);
         Assert.IsNotNull(conflicts.LastError);
         Assert.IsTrue(conflicts.LastError.Contains("locked.txt"));
+        var conflictsDir = Path.Combine(_root, ".nexsync", "Recovery", "Conflicts");
+        Assert.IsTrue(!Directory.Exists(conflictsDir)
+            || Directory.GetFiles(conflictsDir, "*", SearchOption.AllDirectories).Length == 0,
+            "Failed preservation must leave no artifact behind.");
+        Assert.AreEqual(0, Directory.GetFiles(_root, "*.staging-*", SearchOption.AllDirectories).Length,
+            "Staging leftovers must be cleaned up on failure.");
     }
 
     [TestMethod]
@@ -357,6 +363,98 @@ public sealed class ConflictHandlerTests
         Assert.IsTrue(result.PreservationErrors[0].Contains("fragile.txt"));
         Assert.AreEqual(1, queue.CountPending(), "Op must stay unresolved when preservation fails.");
         Assert.AreEqual("fragile-bytes", File.ReadAllText(Path.Combine(_root, "fragile.txt")));
+    }
+
+    [TestMethod]
+    public async Task Coordinator_RealHandlerFailure_CollectsLastError_OpStaysUnresolved()
+    {
+        var fileId = Guid.NewGuid();
+        var content = Encoding.UTF8.GetBytes("real-bytes");
+        File.WriteAllBytes(Path.Combine(_root, "reallock.txt"), content);
+        SeedFile(_db, "reallock.txt", fileId);
+        var (queue, _, _, coordinator) = CreatePipelines(_ => Json(HttpStatusCode.Conflict, new { code = "FILE_NAME_CONFLICT" }));
+        queue.Enqueue(PendingOpType.ModifyFile, "reallock.txt", serverId: fileId);
+
+        string fingerprint;
+        using (var sha = System.Security.Cryptography.SHA256.Create())
+            fingerprint = Convert.ToHexString(sha.ComputeHash(content));
+        var destFile = Path.Combine(_root, ".nexsync", "Recovery", "Conflicts", fingerprint, "reallock.txt");
+        Directory.CreateDirectory(Path.GetDirectoryName(destFile)!);
+        Directory.CreateDirectory(destFile);
+
+        var result = await coordinator.RunOnceAsync();
+
+        Directory.Delete(destFile, recursive: false);
+
+        Assert.AreEqual(1, result.Conflicts);
+        Assert.AreEqual(1, result.PreservationErrors.Count);
+        Assert.IsTrue(result.PreservationErrors[0].Contains("reallock.txt"));
+        Assert.AreEqual(1, queue.CountPending(), "Op must stay unresolved when preservation fails.");
+        Assert.AreEqual("real-bytes", File.ReadAllText(Path.Combine(_root, "reallock.txt")));
+    }
+
+    [TestMethod]
+    public async Task PullPreserveFailure_AbortsTombstone_CursorFrozen()
+    {
+        var fileId = Guid.NewGuid();
+        var victimPath = Path.Combine(_root, "victim.txt");
+        File.WriteAllText(victimPath, "victim-bytes");
+        SeedFile(_db, "victim.txt", fileId, hash: "STALE-HASH");
+        var (queue, _, pull, _) = CreatePipelines(req =>
+        {
+            if (req.RequestUri!.ToString().Contains("/download"))
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(Array.Empty<byte>()) };
+            return Json(HttpStatusCode.OK, new
+            {
+                changes = new[] { Change(41, "File", fileId, "Deleted", "victim.txt", null) },
+                nextCursor = 41L,
+                hasMore = false,
+                highWaterCursor = 41L
+            });
+        });
+        queue.Enqueue(PendingOpType.ModifyFile, "victim.txt", serverId: fileId);
+        var cursorBefore = pull.GetCursor();
+
+        PullApplyOutcome outcome;
+        using (var blocker = new FileStream(victimPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+            outcome = await pull.PullAndApplyAsync(until: 41);
+        }
+
+        Assert.AreEqual(PullApplyOutcome.TransientFailure, outcome);
+        Assert.AreEqual(cursorBefore, pull.GetCursor(), "Cursor must not advance when preservation fails.");
+        Assert.IsTrue(File.Exists(victimPath), "Source must survive an aborted tombstone.");
+        Assert.AreEqual(1, queue.CountPending(), "Ops must not be cancelled when preservation fails.");
+    }
+
+    [TestMethod]
+    public async Task CancelOpsUnder_UnrelatedOpsSurvive()
+    {
+        var folderId = Guid.NewGuid();
+        Directory.CreateDirectory(Path.Combine(_root, "Gone"));
+        Directory.CreateDirectory(Path.Combine(_root, "Stay"));
+        File.WriteAllText(Path.Combine(_root, "Gone", "a.txt"), "a");
+        File.WriteAllText(Path.Combine(_root, "Stay", "b.txt"), "b");
+        SeedFolder(_db, "Gone", folderId);
+        SeedFolder(_db, "Stay", Guid.NewGuid());
+        SeedFile(_db, "Gone/a.txt", Guid.NewGuid());
+        SeedFile(_db, "Stay/b.txt", Guid.NewGuid());
+        var (queue, _, pull, _) = CreatePipelines(_ => Json(HttpStatusCode.OK, new
+        {
+            changes = new[] { Change(42, "Folder", folderId, "Deleted", "Gone", null) },
+            nextCursor = 42L,
+            hasMore = false,
+            highWaterCursor = 42L
+        }));
+        queue.Enqueue(PendingOpType.ModifyFile, "Gone/a.txt", serverId: Guid.NewGuid());
+        queue.Enqueue(PendingOpType.ModifyFile, "Stay/b.txt", serverId: Guid.NewGuid());
+
+        Assert.AreEqual(PullApplyOutcome.Applied, await pull.PullAndApplyAsync(until: 42));
+
+        var remaining = queue.DequeueEligibleBatch(10);
+        Assert.AreEqual(1, remaining.Count);
+        Assert.AreEqual("Stay/b.txt", remaining[0].RelPath);
+        Assert.AreEqual("b", File.ReadAllText(Path.Combine(_root, "Stay", "b.txt")));
     }
 
     [TestMethod]
