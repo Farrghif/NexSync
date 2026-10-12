@@ -46,13 +46,17 @@ public sealed class PullPipeline(
     DesktopAuthService auth,
     string localRoot,
     IRemoteWriteTracker? suppression = null,
-    ConflictHandler? conflicts = null)
+    ConflictHandler conflicts = null!)
 {
     private readonly LocalFolderRepository _folders = new(db.Connection);
     private readonly LocalFileRepository _files = new(db.Connection);
     private readonly SyncStateRepository _state = new(db.Connection);
     private readonly IRemoteWriteTracker _suppression = suppression ?? NullRemoteWriteTracker.Instance;
-    private readonly ConflictHandler? conflicts = conflicts;
+    private readonly ConflictHandler conflicts = conflicts
+        ?? throw new ArgumentNullException(nameof(conflicts),
+            "PullPipeline requires a ConflictHandler: tombstones with unpushed local changes must be preserved, never silently applied.");
+
+    public ConflictHandler ActiveConflictHandler => conflicts;
 
     public const string CursorKey = "LastPulledSequence";
     private const int PullLimit = 500;
@@ -290,7 +294,7 @@ public sealed class PullPipeline(
         var row = _files.GetByServerId(change.EntityId);
         if (row is not null)
         {
-            if (conflicts is not null && conflicts.HasUnpushedChanges(row.RelativePath))
+            if (conflicts.HasUnpushedChanges(row.RelativePath))
             {
                 if (!conflicts.PreserveForRemoteDelete(row.RelativePath, out _))
                     return false;
@@ -382,7 +386,7 @@ public sealed class PullPipeline(
         var row = _folders.GetByServerId(change.EntityId);
         if (row is not null)
         {
-            if (conflicts is not null && conflicts.HasUnpushedChanges(row.RelativePath))
+            if (conflicts.HasUnpushedChanges(row.RelativePath))
             {
                 if (!conflicts.PreserveForRemoteDelete(row.RelativePath, out _))
                     return false;
@@ -443,3 +447,4 @@ public sealed class PullPipeline(
         return idx <= 0 ? null : relPath[..idx];
     }
 }
+

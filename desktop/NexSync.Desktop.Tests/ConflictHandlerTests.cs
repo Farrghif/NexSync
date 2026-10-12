@@ -227,8 +227,12 @@ public sealed class ConflictHandlerTests
         SeedFile(_db, "stable.txt", fileId);
         queue.Enqueue(PendingOpType.ModifyFile, "stable.txt", serverId: fileId);
 
-        Assert.AreEqual(1, (await coordinator.RunOnceAsync()).Conflicts);
-        Assert.AreEqual(1, (await coordinator.RunOnceAsync()).Conflicts);
+        var first = await coordinator.RunOnceAsync();
+        var second = await coordinator.RunOnceAsync();
+        Assert.AreEqual(1, first.Conflicts);
+        Assert.AreEqual(1, second.Conflicts);
+        Assert.AreEqual(0, first.PreservationErrors.Count, "Successful preservation must report no errors.");
+        Assert.AreEqual(0, second.PreservationErrors.Count, "Idempotent retry must report no errors.");
 
         var copies = Directory.GetFiles(Path.Combine(_root, ".nexsync", "Recovery", "Conflicts"), "*", SearchOption.AllDirectories);
         Assert.AreEqual(1, copies.Length);
@@ -458,31 +462,27 @@ public sealed class ConflictHandlerTests
     }
 
     [TestMethod]
-    public async Task MissingConflictHandler_PreservationUnavailable_IsDetected()
+    public void MissingConflictHandler_PullPipelineRefusesToConstruct()
     {
-        var fileId = Guid.NewGuid();
-        var handler = new StubHandler(_ => Json(HttpStatusCode.OK, new
-        {
-            changes = new[] { Change(23, "File", fileId, "Deleted", "orphan.txt", null) },
-            nextCursor = 23L,
-            hasMore = false,
-            highWaterCursor = 23L
-        }));
+        var handler = new StubHandler(_ => Json(HttpStatusCode.OK, new { ok = true }));
         var auth = new DesktopAuthService("http://localhost:5000", Path.Combine(_dir, "auth"), handler);
         var queue = new PendingQueueService(_db);
-        var pull = new PullPipeline(_db, queue, auth, _root);
-        File.WriteAllText(Path.Combine(_root, "orphan.txt"), "unpushed");
-        SeedFile(_db, "orphan.txt", fileId, hash: "STALE");
-        queue.Enqueue(PendingOpType.ModifyFile, "orphan.txt", serverId: fileId);
 
-        Assert.AreEqual(PullApplyOutcome.Applied, await pull.PullAndApplyAsync(until: 23));
-        var recoveryDir = Path.Combine(_root, ".nexsync", "Recovery", "DeletedByServer");
-        var preserved = Directory.Exists(recoveryDir)
-            ? Directory.GetFiles(recoveryDir, "*", SearchOption.AllDirectories).Length
-            : 0;
-        Assert.AreEqual(0, preserved,
-            "Without ConflictHandler no preservation copy may exist; tombstone applies without recovery.");
-        Assert.IsFalse(File.Exists(Path.Combine(_root, "orphan.txt")));
+        var ex = Assert.ThrowsExactly<ArgumentNullException>(() =>
+            new PullPipeline(_db, queue, auth, _root, conflicts: null));
+        Assert.AreEqual("conflicts", ex.ParamName);
+    }
+
+    [TestMethod]
+    public void ProductionWiring_SyncEngine_ExposesSingleSharedHandler()
+    {
+        var handler = new StubHandler(_ => Json(HttpStatusCode.OK, new { ok = true }));
+        var auth = new DesktopAuthService("http://localhost:5000", Path.Combine(_dir, "auth-wiring2"), handler);
+        using var db = new LocalDb(Path.Combine(_dir, ".nexsync-wiring2", "local.db"));
+        using var engine = SyncEngineFactory.Create(db, auth, Path.Combine(_dir, "wiring2-files"));
+
+        Assert.IsNotNull(engine.Conflicts);
+        Assert.AreSame(engine.Conflicts, engine.Pull.ActiveConflictHandler);
     }
 
     [TestMethod]

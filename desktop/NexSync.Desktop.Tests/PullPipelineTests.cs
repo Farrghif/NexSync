@@ -79,7 +79,7 @@ public sealed class PullPipelineTests
         var handler = new StubHandler(respond);
         var auth = new DesktopAuthService("http://localhost:5000", Path.Combine(_dir, "auth"), handler);
         var queue = new PendingQueueService(_db);
-        return (new PullPipeline(_db, queue, auth, _root), queue);
+        return (new PullPipeline(_db, queue, auth, _root, conflicts: new ConflictHandler(_db, _root)), queue);
     }
 
     private static void SeedFolder(LocalDb db, string rel, Guid? serverId)
@@ -289,7 +289,7 @@ public sealed class PullPipelineTests
             System.Text.Json.JsonSerializer.Serialize(new { deviceId = ownDevice.ToString() }));
         var auth = new DesktopAuthService("http://localhost:5000", authDir, handler);
         var queue = new PendingQueueService(_db);
-        var pull = new PullPipeline(_db, queue, auth, _root);
+        var pull = new PullPipeline(_db, queue, auth, _root, conflicts: new ConflictHandler(_db, _root));
 
         SeedFile(_db, "mine.txt", fileId, hash: Sha256Of(payload));
         File.WriteAllText(Path.Combine(_root, "mine.txt"), "server-wins-content");
@@ -471,7 +471,7 @@ public sealed class PullPipelineTests
         {
             var handler = new StubHandler(respond);
             var auth = new DesktopAuthService("http://localhost:5000", authDir, handler);
-            return new PullPipeline(_db, new PendingQueueService(_db), auth, _root);
+            return new PullPipeline(_db, new PendingQueueService(_db), auth, _root, conflicts: new ConflictHandler(_db, _root));
         }
 
         var fileId = Guid.NewGuid();
@@ -581,7 +581,7 @@ public sealed class PullPipelineTests
             highWaterCursor = 20L
         }));
         var auth = new DesktopAuthService("http://localhost:5000", authDir, handler);
-        var pull = new PullPipeline(_db, new PendingQueueService(_db), auth, _root);
+        var pull = new PullPipeline(_db, new PendingQueueService(_db), auth, _root, conflicts: new ConflictHandler(_db, _root));
 
         Assert.AreEqual(PullApplyOutcome.Applied, await pull.PullAndApplyAsync(until: 20));
         var row = new LocalFolderRepository(_db.Connection).GetByServerId(folderId);
@@ -653,3 +653,4 @@ public sealed class PullPipelineTests
         Assert.AreEqual(0, new PendingOperationRepository(_db.Connection).CountPending());
     }
 }
+
