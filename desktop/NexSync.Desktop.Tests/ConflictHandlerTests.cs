@@ -357,7 +357,7 @@ public sealed class ConflictHandlerTests
         var auth = new DesktopAuthService("http://localhost:5000", Path.Combine(_dir, "auth"), handler);
         var queue = new PendingQueueService(_db);
         var push = new PushPipeline(_db, queue, auth, _root);
-        var coordinator = new SyncCoordinator(_db, queue, push, preserveConflict: _ => null);
+        var coordinator = new SyncCoordinator(_db, queue, push, new ConflictHandler(_db, _root), preserveConflict: _ => null);
         queue.Enqueue(PendingOpType.ModifyFile, "fragile.txt", serverId: fileId);
 
         var result = await coordinator.RunOnceAsync();
@@ -483,6 +483,7 @@ public sealed class ConflictHandlerTests
 
         Assert.IsNotNull(engine.Conflicts);
         Assert.AreSame(engine.Conflicts, engine.Pull.ActiveConflictHandler);
+        Assert.AreSame(engine.Conflicts, engine.Coordinator.ActiveConflictHandler);
     }
 
     [TestMethod]

@@ -29,9 +29,9 @@ public sealed class SyncCoordinator(
     LocalDb db,
     PendingQueueService queue,
     PushPipeline push,
+    ConflictHandler conflicts,
     int batchSize = 50,
     Func<TimeSpan, CancellationToken, Task>? sleeper = null,
-    ConflictHandler? conflicts = null,
     Func<PendingOperationRow, string?>? preserveConflict = null)
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
@@ -88,7 +88,7 @@ public sealed class SyncCoordinator(
                             if (preserveConflict(op) is null)
                                 preservationErrors.Add($"Preservation of '{op.RelPath}' reported no copy and no reason.");
                         }
-                        else if (conflicts is not null)
+                        else
                         {
                             var preserved = conflicts.PreservePushConflict(op);
                             if (preserved is null)
@@ -118,4 +118,6 @@ public sealed class SyncCoordinator(
     }
 
     public bool HasPendingSignal => Volatile.Read(ref _pendingSignals) > 0;
+
+    public ConflictHandler ActiveConflictHandler => conflicts;
 }

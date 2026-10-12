@@ -229,11 +229,11 @@ public sealed class ConflictHandler(
         }
         catch (IOException)
         {
-            return false;
+            return true;
         }
         catch (UnauthorizedAccessException)
         {
-            return false;
+            return true;
         }
     }
 
@@ -347,11 +347,11 @@ public sealed class ConflictHandler(
         }
         catch (IOException)
         {
-            return false;
+            return true;
         }
         catch (UnauthorizedAccessException)
         {
-            return false;
+            return true;
         }
     }
 

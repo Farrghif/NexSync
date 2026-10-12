@@ -261,7 +261,7 @@ public sealed class PushPipelineTests
         var push = new PushPipeline(_db, queue, auth, _root);
         SeedFolder(_db, "C", null);
         queue.Enqueue(PendingOpType.CreateFolder, "C");
-        var coordinator = new SyncCoordinator(_db, queue, push);
+        var coordinator = new SyncCoordinator(_db, queue, push, new ConflictHandler(_db, _root));
 
         var t1 = coordinator.RunOnceAsync();
         await Task.Delay(200);
@@ -287,7 +287,7 @@ public sealed class PushPipelineTests
         });
         SeedFolder(_db, "S", null);
         queue.Enqueue(PendingOpType.CreateFolder, "S");
-        var coordinator = new SyncCoordinator(_db, queue, push);
+        var coordinator = new SyncCoordinator(_db, queue, push, new ConflictHandler(_db, _root));
 
         coordinator.RequestSync();
         coordinator.RequestSync();
@@ -399,7 +399,7 @@ public sealed class PushPipelineTests
         var (queue, push, _) = Create(_ => Json(HttpStatusCode.Created, new { id = Guid.NewGuid(), name = "B" }));
         queue.Enqueue(PendingOpType.CreateFolder, "BB1");
         queue.Enqueue(PendingOpType.CreateFolder, "BB2");
-        var coordinator = new SyncCoordinator(_db, queue, push, batchSize: 1);
+        var coordinator = new SyncCoordinator(_db, queue, push, new ConflictHandler(_db, _root), batchSize: 1);
 
         var result = await coordinator.RunOnceAsync();
 
@@ -416,7 +416,7 @@ public sealed class PushPipelineTests
         SeedFolder(_db, "BO", null);
         queue.Enqueue(PendingOpType.CreateFolder, "BO1");
         queue.Enqueue(PendingOpType.CreateFolder, "BO2");
-        var coordinator = new SyncCoordinator(_db, queue, push, batchSize: 10,
+        var coordinator = new SyncCoordinator(_db, queue, push, new ConflictHandler(_db, _root), batchSize: 10,
             sleeper: (delay, _) => { sleeps.Add(delay); return Task.CompletedTask; });
 
         var result = await coordinator.RunOnceAsync();
@@ -427,3 +427,4 @@ public sealed class PushPipelineTests
         Assert.AreEqual(2, queue.CountPending());
     }
 }
+
