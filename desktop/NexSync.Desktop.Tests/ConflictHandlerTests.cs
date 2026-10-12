@@ -315,6 +315,51 @@ public sealed class ConflictHandlerTests
     }
 
     [TestMethod]
+    public void PushConflict_PreservationFailure_SetsLastError()
+    {
+        var fileId = Guid.NewGuid();
+        var lockedPath = Path.Combine(_root, "locked.txt");
+        File.WriteAllText(lockedPath, "precious");
+        SeedFile(_db, "locked.txt", fileId);
+        var queue = new PendingQueueService(_db);
+        var opId = queue.Enqueue(PendingOpType.ModifyFile, "locked.txt", serverId: fileId);
+        var conflicts = new ConflictHandler(_db, _root);
+        var op = conflicts.GetOpsFor("locked.txt").First(o => o.OperationId == opId);
+
+        string? directResult;
+        using (var blocker = new FileStream(lockedPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+            directResult = conflicts.PreservePushConflict(op);
+        }
+
+        Assert.IsNull(directResult);
+        Assert.IsNotNull(conflicts.LastError);
+        Assert.IsTrue(conflicts.LastError.Contains("locked.txt"));
+    }
+
+    [TestMethod]
+    public async Task Coordinator_SurfacesPreservationFailure_OpStaysUnresolved()
+    {
+        var fileId = Guid.NewGuid();
+        File.WriteAllText(Path.Combine(_root, "fragile.txt"), "fragile-bytes");
+        SeedFile(_db, "fragile.txt", fileId);
+        var handler = new StubHandler(_ => Json(HttpStatusCode.Conflict, new { code = "FILE_NAME_CONFLICT" }));
+        var auth = new DesktopAuthService("http://localhost:5000", Path.Combine(_dir, "auth"), handler);
+        var queue = new PendingQueueService(_db);
+        var push = new PushPipeline(_db, queue, auth, _root);
+        var coordinator = new SyncCoordinator(_db, queue, push, preserveConflict: _ => null);
+        queue.Enqueue(PendingOpType.ModifyFile, "fragile.txt", serverId: fileId);
+
+        var result = await coordinator.RunOnceAsync();
+
+        Assert.AreEqual(1, result.Conflicts);
+        Assert.AreEqual(1, result.PreservationErrors.Count);
+        Assert.IsTrue(result.PreservationErrors[0].Contains("fragile.txt"));
+        Assert.AreEqual(1, queue.CountPending(), "Op must stay unresolved when preservation fails.");
+        Assert.AreEqual("fragile-bytes", File.ReadAllText(Path.Combine(_root, "fragile.txt")));
+    }
+
+    [TestMethod]
     public async Task MissingConflictHandler_PreservationUnavailable_IsDetected()
     {
         var fileId = Guid.NewGuid();

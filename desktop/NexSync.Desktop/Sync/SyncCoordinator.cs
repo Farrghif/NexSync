@@ -22,7 +22,8 @@ public sealed record PushBatchResult(
     int Pushed,
     int Conflicts,
     bool StoppedByAuth,
-    bool NeedsReconcile);
+    bool NeedsReconcile,
+    IReadOnlyList<string> PreservationErrors);
 
 public sealed class SyncCoordinator(
     LocalDb db,
@@ -30,7 +31,8 @@ public sealed class SyncCoordinator(
     PushPipeline push,
     int batchSize = 50,
     Func<TimeSpan, CancellationToken, Task>? sleeper = null,
-    ConflictHandler? conflicts = null)
+    ConflictHandler? conflicts = null,
+    Func<PendingOperationRow, string?>? preserveConflict = null)
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
     private int _pendingSignals;
@@ -51,7 +53,7 @@ public sealed class SyncCoordinator(
         if (!await _gate.WaitAsync(0, ct))
         {
             RequestSync();
-            return new PushBatchResult(0, 0, 0, StoppedByAuth: false, NeedsReconcile: false);
+            return new PushBatchResult(0, 0, 0, StoppedByAuth: false, NeedsReconcile: false, Array.Empty<string>());
         }
         try
         {
@@ -64,6 +66,7 @@ public sealed class SyncCoordinator(
             var stoppedByAuth = false;
             var needsReconcile = false;
             var consecutiveFailures = 0;
+            var preservationErrors = new List<string>();
             foreach (var op in batch)
             {
                 ct.ThrowIfCancellationRequested();
@@ -80,12 +83,23 @@ public sealed class SyncCoordinator(
                     case PushOutcome.Conflict:
                         conflictCount++;
                         consecutiveFailures = 0;
-                        conflicts?.PreservePushConflict(op);
+                        if (preserveConflict is not null)
+                        {
+                            if (preserveConflict(op) is null)
+                                preservationErrors.Add($"Preservation of '{op.RelPath}' reported no copy and no reason.");
+                        }
+                        else if (conflicts is not null)
+                        {
+                            var preserved = conflicts.PreservePushConflict(op);
+                            if (preserved is null)
+                                preservationErrors.Add(conflicts.LastError
+                                    ?? $"Preservation of '{op.RelPath}' reported no copy and no reason.");
+                        }
                         break;
                     case PushOutcome.AuthFailed:
                     case PushOutcome.Forbidden:
                         stoppedByAuth = true;
-                        return new PushBatchResult(attempted, pushed, conflictCount, true, needsReconcile);
+                        return new PushBatchResult(attempted, pushed, conflictCount, true, needsReconcile, preservationErrors);
                     case PushOutcome.NeedsReconcile:
                         needsReconcile = true;
                         consecutiveFailures = 0;
@@ -95,7 +109,7 @@ public sealed class SyncCoordinator(
                         break;
                 }
             }
-            return new PushBatchResult(attempted, pushed, conflictCount, stoppedByAuth, needsReconcile);
+            return new PushBatchResult(attempted, pushed, conflictCount, stoppedByAuth, needsReconcile, preservationErrors);
         }
         finally
         {
