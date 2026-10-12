@@ -136,6 +136,37 @@ public sealed class PullPipelineTests
     }
 
     [TestMethod]
+    public async Task WebMadeChange_PulledToDisk_ByteIdentical()
+    {
+        var fileId = Guid.NewGuid();
+        var webDevice = Guid.NewGuid();
+        var webBytes = Encoding.UTF8.GetBytes("web-edited-bytes-v2");
+        var (pull, _) = Create(req =>
+        {
+            var url = req.RequestUri!.ToString();
+            if (url.Contains("/download"))
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new ByteArrayContent(webBytes)
+                };
+            return Json(HttpStatusCode.OK, new
+            {
+                changes = new[] { Change(9, "File", fileId, "Modified", "shared.txt", null, Sha256Of(webBytes), webBytes.Length, "text/plain", webDevice) },
+                nextCursor = 9L,
+                hasMore = false,
+                highWaterCursor = 9L
+            });
+        });
+
+        var outcome = await pull.PullAndApplyAsync(until: 9);
+
+        Assert.AreEqual(PullApplyOutcome.Applied, outcome);
+        Assert.AreEqual(9L, pull.GetCursor());
+        CollectionAssert.AreEqual(webBytes, File.ReadAllBytes(Path.Combine(_root, "shared.txt")));
+        Assert.AreEqual(Sha256Of(webBytes), new LocalFileRepository(_db.Connection).GetByServerId(fileId)?.Hash);
+    }
+
+    [TestMethod]
     public async Task Cursor_PersistedOnlyAfterFullBatch()
     {
         var fileId = Guid.NewGuid();

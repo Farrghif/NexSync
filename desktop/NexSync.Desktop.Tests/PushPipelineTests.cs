@@ -426,5 +426,40 @@ public sealed class PushPipelineTests
         Assert.AreEqual(TimeSpan.FromSeconds(2), sleeps[0]);
         Assert.AreEqual(2, queue.CountPending());
     }
+
+    [TestMethod]
+    public async Task OfflineOp_ReconnectPushesWithSameOperationId()
+    {
+        var online = false;
+        var seenOpIds = new List<string>();
+        var serverId = Guid.NewGuid();
+        var (queue, push, _) = Create(req =>
+        {
+            if (!online)
+                throw new HttpRequestException("simulated offline");
+            seenOpIds.Add(req.Headers.TryGetValues("X-Operation-Id", out var v) ? string.Join(",", v) : string.Empty);
+            return Json(HttpStatusCode.Created, new { id = serverId, name = "Offline" });
+        });
+        File.WriteAllText(Path.Combine(_root, "offline.txt"), "offline-bytes");
+        SeedFile(_db, "offline.txt", null);
+        var opId = queue.Enqueue(PendingOpType.CreateFile, "offline.txt");
+        var coordinator = new SyncCoordinator(_db, queue, push, new ConflictHandler(_db, _root));
+
+        var offlineResult = await coordinator.RunOnceAsync();
+
+        online = true;
+        var onlineResult = await coordinator.RunOnceAsync();
+
+        Assert.AreEqual(1, offlineResult.Attempted);
+        Assert.AreEqual(0, offlineResult.Pushed);
+        Assert.AreEqual(1, queue.CountPending() + onlineResult.Pushed,
+            "Offline run must retain the op; reconnect run pushes it.");
+        Assert.AreEqual(1, onlineResult.Pushed);
+        Assert.AreEqual(0, queue.CountPending());
+        Assert.AreEqual(1, seenOpIds.Count);
+        Assert.AreEqual(opId.ToString(), seenOpIds[0],
+            "Reconnect must reuse the original OperationId so server replay stays idempotent.");
+        Assert.AreEqual(serverId, new LocalFileRepository(_db.Connection).GetByPath("offline.txt")?.ServerFileId);
+    }
 }
 
