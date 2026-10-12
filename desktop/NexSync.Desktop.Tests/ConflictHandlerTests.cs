@@ -432,6 +432,48 @@ public sealed class ConflictHandlerTests
     }
 
     [TestMethod]
+    public void HasUnpushedChanges_IoFailure_IsFailClosed()
+    {
+        var content = Encoding.UTF8.GetBytes("synced-bytes");
+        File.WriteAllBytes(Path.Combine(_root, "io-fail.txt"), content);
+        SeedFile(_db, "io-fail.txt", Guid.NewGuid(), hash: Sha256Of(content));
+        var conflicts = new ConflictHandler(_db, _root, openRead: _ => throw new IOException("injected read failure"));
+
+        Assert.IsTrue(conflicts.HasUnpushedChanges("io-fail.txt"),
+            "Unreadable file must be treated as potentially unpushed, never as safe-to-delete.");
+    }
+
+    [TestMethod]
+    public async Task RemoteDelete_IoFailure_AbortsTombstone_PreservesFile()
+    {
+        var fileId = Guid.NewGuid();
+        var content = Encoding.UTF8.GetBytes("original-bytes");
+        File.WriteAllBytes(Path.Combine(_root, "precious.txt"), content);
+        SeedFile(_db, "precious.txt", fileId, hash: Sha256Of(content));
+        var handler = new StubHandler(_ => Json(HttpStatusCode.OK, new
+        {
+            changes = new[] { Change(51, "File", fileId, "Deleted", "precious.txt", null) },
+            nextCursor = 51L,
+            hasMore = false,
+            highWaterCursor = 51L
+        }));
+        var auth = new DesktopAuthService("http://localhost:5000", Path.Combine(_dir, "auth-iofail"), handler);
+        var queue = new PendingQueueService(_db);
+        var conflicts = new ConflictHandler(_db, _root, openRead: _ => throw new IOException("injected read failure"));
+        var pull = new PullPipeline(_db, queue, auth, _root, conflicts: conflicts);
+        var cursorBefore = pull.GetCursor();
+
+        var outcome = await pull.PullAndApplyAsync(until: 51);
+
+        Assert.AreEqual(PullApplyOutcome.TransientFailure, outcome);
+        Assert.AreEqual(cursorBefore, pull.GetCursor(), "Cursor must not advance past a failed tombstone.");
+        Assert.IsTrue(File.Exists(Path.Combine(_root, "precious.txt")), "Original must survive an aborted tombstone.");
+        Assert.AreEqual("original-bytes", File.ReadAllText(Path.Combine(_root, "precious.txt")));
+        Assert.IsNotNull(new LocalFileRepository(_db.Connection).GetByServerId(fileId), "DB row must survive an aborted tombstone.");
+        Assert.IsNotNull(conflicts.LastError, "Preservation failure must be reported explicitly.");
+    }
+
+    [TestMethod]
     public async Task CancelOpsUnder_UnrelatedOpsSurvive()
     {
         var folderId = Guid.NewGuid();

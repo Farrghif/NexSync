@@ -9,8 +9,11 @@ namespace NexSync.Desktop.Sync;
 
 public sealed class ConflictHandler(
     LocalDb db,
-    string localRoot)
+    string localRoot,
+    Func<string, Stream>? openRead = null)
 {
+    private readonly Func<string, Stream> _openRead =
+        openRead ?? (path => new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite));
     public const string RecoveryDirName = ".nexsync";
     public const string ConflictsDir = "Recovery/Conflicts";
     public const string DeletedByServerDir = "Recovery/DeletedByServer";
@@ -263,12 +266,12 @@ public sealed class ConflictHandler(
     private string ToFullPath(string relPath) =>
         Path.Combine(localRoot, relPath.Replace('/', Path.DirectorySeparatorChar));
 
-    private static string? ComputeFileFingerprint(string fullPath)
+    private string? ComputeFileFingerprint(string fullPath)
     {
         try
         {
             using var sha = SHA256.Create();
-            using var stream = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            using var stream = _openRead(fullPath);
             return Convert.ToHexString(sha.ComputeHash(stream));
         }
         catch (IOException)
@@ -281,7 +284,7 @@ public sealed class ConflictHandler(
         }
     }
 
-    private static string? ComputeDirectoryFingerprint(string fullPath)
+    private string? ComputeDirectoryFingerprint(string fullPath)
     {
         try
         {
@@ -333,7 +336,7 @@ public sealed class ConflictHandler(
         }
     }
 
-    private static bool DiskHashDiffers(string fullPath, string? recordedHash)
+    private bool DiskHashDiffers(string fullPath, string? recordedHash)
     {
         if (!File.Exists(fullPath))
             return recordedHash is not null;
@@ -342,7 +345,7 @@ public sealed class ConflictHandler(
         try
         {
             using var sha = SHA256.Create();
-            using var stream = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            using var stream = _openRead(fullPath);
             return !string.Equals(Convert.ToHexString(sha.ComputeHash(stream)), recordedHash, StringComparison.OrdinalIgnoreCase);
         }
         catch (IOException)
