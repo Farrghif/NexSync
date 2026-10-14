@@ -175,3 +175,88 @@ export const FolderPlusIcon = (p: IconProps) =>
       <path d="M17 14v6M14 17h6" />
     </>,
   );
+
+export const SortIcon = (p: IconProps) =>
+  base(
+    p,
+    <>
+      <path d="M7 4v16M7 20l-3-3M7 20l3-3" />
+      <path d="M17 20V4M17 4l-3 3M17 4l3 3" />
+    </>,
+  );
+
+export const ChevronDownIcon = (p: IconProps) => base(p, <path d="m6 9 6 6 6-6" />);
+
+export const ArrowUpIcon = (p: IconProps) =>
+  base(
+    p,
+    <>
+      <path d="M12 19V5" />
+      <path d="m6 11 6-6 6 6" />
+    </>,
+  );
+
+export const ArrowDownIcon = (p: IconProps) =>
+  base(
+    p,
+    <>
+      <path d="M12 5v14" />
+      <path d="m6 13 6 6 6-6" />
+    </>,
+  );
+
+export const CalendarIcon = (p: IconProps) =>
+  base(
+    p,
+    <>
+      <rect x="3" y="4.5" width="18" height="16" rx="2.5" />
+      <path d="M3 9.5h18M8 2.5v4M16 2.5v4" />
+    </>,
+  );
+
+export const ClockIcon = (p: IconProps) =>
+  base(
+    p,
+    <>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M12 7.5V12l3 2" />
+    </>,
+  );
+
+export const TagIcon = (p: IconProps) =>
+  base(
+    p,
+    <>
+      <path d="M3.5 12.5 11 5a2 2 0 0 1 1.4-.6H19a1.5 1.5 0 0 1 1.5 1.5v6.6a2 2 0 0 1-.6 1.4l-7.5 7.5a2 2 0 0 1-2.8 0l-6.1-6.1a2 2 0 0 1 0-2.8Z" />
+      <path d="M16 8h.01" />
+    </>,
+  );
+
+export const TextIcon = (p: IconProps) =>
+  base(
+    p,
+    <>
+      <path d="M5 6.5V5h14v1.5" />
+      <path d="M12 5v14" />
+      <path d="M9 19h6" />
+    </>,
+  );
+
+export const LayersIcon = (p: IconProps) =>
+  base(
+    p,
+    <>
+      <path d="m12 3 9 5-9 5-9-5 9-5Z" />
+      <path d="m3 13 9 5 9-5" />
+    </>,
+  );
+
+export const FolderFirstIcon = (p: IconProps) =>
+  base(
+    p,
+    <>
+      <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z" />
+      <path d="M9.5 15.5l2.5-2.5 2.5 2.5" />
+      <path d="M12 13v5" />
+    </>,
+  );

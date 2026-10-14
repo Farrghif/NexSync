@@ -10,6 +10,8 @@ import { api } from "../api/client";
 import { useToast } from "../components/toast";
 import { useTheme } from "../components/useTheme";
 import { ConfirmDialog, PromptDialog } from "../components/Modal";
+import { SortMenu } from "../components/SortMenu";
+import { DEFAULT_SORT, isValidSort, type SortDir, type SortKey, type SortState } from "../components/sort";
 import {
   ChevronRight, CloudIcon, DeviceIcon, DownloadIcon, FileIcon, FolderIcon,
   FolderPlusIcon, GridIcon, ListIcon, LogoutIcon, MoonIcon, PencilIcon,
@@ -38,6 +40,74 @@ interface ConfirmState {
   name: string;
 }
 
+interface FolderItem {
+  kind: "folder";
+  id: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+  parentFolderId: string | null;
+}
+
+interface FileItem {
+  kind: "file";
+  id: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+  folderId: string | null;
+  size: number;
+  contentType: string;
+}
+
+type Item = FolderItem | FileItem;
+
+const SORT_KEY = "nexsync:sort";
+const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+
+function loadSort(): SortState {
+  try {
+    const raw = localStorage.getItem(SORT_KEY);
+    if (!raw) return DEFAULT_SORT;
+    const parsed: unknown = JSON.parse(raw);
+    return isValidSort(parsed) ? parsed : DEFAULT_SORT;
+  } catch {
+    return DEFAULT_SORT;
+  }
+}
+
+function timeMs(value: string | undefined): number {
+  const t = Date.parse(value ?? "");
+  return Number.isNaN(t) ? 0 : t;
+}
+
+function compareItems(a: Item, b: Item, key: SortKey, dir: SortDir): number {
+  const m = dir === "asc" ? 1 : -1;
+  let r: number;
+  switch (key) {
+    case "name":
+      r = collator.compare(a.name, b.name);
+      break;
+    case "modified":
+      r = timeMs(a.updatedAt) - timeMs(b.updatedAt);
+      break;
+    case "created":
+      r = timeMs(a.createdAt) - timeMs(b.createdAt);
+      break;
+    case "size":
+      r = (a.kind === "file" ? a.size : -1) - (b.kind === "file" ? b.size : -1);
+      break;
+    case "type":
+      r = collator.compare(
+        a.kind === "folder" ? "" : a.contentType || "file",
+        b.kind === "folder" ? "" : b.contentType || "file",
+      );
+      break;
+  }
+  if (r === 0) r = collator.compare(a.name, b.name);
+  return m * r;
+}
+
 export function DashboardPage() {
   const { user, logout } = useAuth();
   const toast = useToast();
@@ -49,6 +119,7 @@ export function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<ViewMode>("grid");
   const [query, setQuery] = useState("");
+  const [sort, setSort] = useState<SortState>(loadSort);
   const [uploadPct, setUploadPct] = useState<number | null>(null);
   const [prompt, setPrompt] = useState<PromptState | null>(null);
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
@@ -56,6 +127,10 @@ export function DashboardPage() {
   const fileInput = useRef<HTMLInputElement>(null);
 
   const current = crumbs[crumbs.length - 1];
+
+  useEffect(() => {
+    localStorage.setItem(SORT_KEY, JSON.stringify(sort));
+  }, [sort]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -74,9 +149,9 @@ export function DashboardPage() {
     void load();
   }, [load]);
 
-  const openFolder = (f: FolderDto) => {
+  const enterFolder = (item: FolderItem) => {
     setQuery("");
-    setCrumbs((c) => [...c, { id: f.id, name: f.name }]);
+    setCrumbs((c) => [...c, { id: item.id, name: item.name }]);
   };
   const goCrumb = (i: number) => {
     setQuery("");
@@ -84,14 +159,47 @@ export function DashboardPage() {
   };
 
   const q = query.trim().toLowerCase();
-  const shownFolders = useMemo(
-    () => (q ? folders.filter((f) => f.name.toLowerCase().includes(q)) : folders),
-    [folders, q],
+
+  const items = useMemo<Item[]>(() => {
+    const folderItems: FolderItem[] = folders
+      .filter((f) => !q || f.name.toLowerCase().includes(q))
+      .map((f) => ({
+        kind: "folder",
+        id: f.id,
+        name: f.name,
+        createdAt: f.createdAt,
+        updatedAt: f.updatedAt,
+        parentFolderId: f.parentFolderId,
+      }));
+    const fileItems: FileItem[] = files
+      .filter((f) => !q || f.name.toLowerCase().includes(q))
+      .map((f) => ({
+        kind: "file",
+        id: f.id,
+        name: f.name,
+        createdAt: f.createdAt,
+        updatedAt: f.updatedAt,
+        folderId: f.folderId,
+        size: f.size,
+        contentType: f.contentType,
+      }));
+    return [...folderItems, ...fileItems];
+  }, [folders, files, q]);
+
+  const comparator = useCallback(
+    (a: Item, b: Item) => compareItems(a, b, sort.key, sort.dir),
+    [sort.key, sort.dir],
   );
-  const shownFiles = useMemo(
-    () => (q ? files.filter((f) => f.name.toLowerCase().includes(q)) : files),
-    [files, q],
+
+  const sortedFolders = useMemo(
+    () => items.filter((i): i is FolderItem => i.kind === "folder").slice().sort(comparator),
+    [items, comparator],
   );
+  const sortedFiles = useMemo(
+    () => items.filter((i): i is FileItem => i.kind === "file").slice().sort(comparator),
+    [items, comparator],
+  );
+  const combined = useMemo(() => items.slice().sort(comparator), [items, comparator]);
 
   const onUpload = async (picked: FileList | null) => {
     if (!picked || picked.length === 0) return;
@@ -120,8 +228,7 @@ export function DashboardPage() {
         await updateFolder(prompt.targetId, value, prompt.parentId ?? null);
         toast.success("Folder renamed.");
       } else if (prompt.mode === "renameFile" && prompt.targetId) {
-        const file = files.find((f) => f.id === prompt.targetId);
-        await updateFile(prompt.targetId, value, file?.folderId ?? null);
+        await updateFile(prompt.targetId, value, prompt.parentId ?? null);
         toast.success("File renamed.");
       }
       setPrompt(null);
@@ -153,19 +260,34 @@ export function DashboardPage() {
     }
   };
 
-  const onDownload = async (f: FileDto) => {
+  const onDownload = async (item: { id: string; name: string }) => {
     try {
-      const res = await api.get(`/files/${f.id}/download`, { responseType: "blob" });
+      const res = await api.get(`/files/${item.id}/download`, { responseType: "blob" });
       const url = URL.createObjectURL(res.data);
       const a = document.createElement("a");
       a.href = url;
-      a.download = f.name;
+      a.download = item.name;
       a.click();
       URL.revokeObjectURL(url);
     } catch (e) {
       toast.error(describeError(e));
     }
   };
+
+  const openItem = (item: Item) => {
+    if (item.kind === "folder") enterFolder(item);
+    else void onDownload(item);
+  };
+
+  const renameItem = (item: Item) => {
+    if (item.kind === "folder") {
+      setPrompt({ mode: "renameFolder", targetId: item.id, parentId: item.parentFolderId, initial: item.name });
+    } else {
+      setPrompt({ mode: "renameFile", targetId: item.id, parentId: item.folderId, initial: item.name });
+    }
+  };
+
+  const askDelete = (item: Item) => setConfirm({ kind: item.kind, id: item.id, name: item.name });
 
   const device = currentDeviceId();
   const initials = (user?.fullName ?? user?.email ?? "?")
@@ -175,7 +297,97 @@ export function DashboardPage() {
     .join("")
     .toUpperCase();
 
-  const promptConfig = promptConfigFor(prompt, crumbs);
+  const promptConfig = promptConfigFor(prompt, current.name);
+
+  const renderGrid = (list: Item[]) => (
+    <div className="grid">
+      {list.map((item) => (
+        <div className="card" key={`${item.kind}:${item.id}`}>
+          <div className="card-actions">
+            {item.kind === "file" && (
+              <button className="icon-btn" title="Download" aria-label={`Download ${item.name}`} onClick={() => void onDownload(item)}>
+                <DownloadIcon size={15} />
+              </button>
+            )}
+            <button className="icon-btn" title="Rename" aria-label={`Rename ${item.name}`} onClick={() => renameItem(item)}>
+              <PencilIcon size={15} />
+            </button>
+            <button className="icon-btn danger" title="Delete" aria-label={`Delete ${item.name}`} onClick={() => askDelete(item)}>
+              <TrashIcon size={15} />
+            </button>
+          </div>
+          <div
+            className="card-main"
+            role="button"
+            tabIndex={0}
+            onClick={() => openItem(item)}
+            onKeyDown={(e) => e.key === "Enter" && openItem(item)}
+          >
+            <span className={`card-icon ${item.kind}`}>
+              {item.kind === "folder" ? <FolderIcon size={21} /> : <FileIcon size={21} />}
+            </span>
+            <div style={{ minWidth: 0 }}>
+              <div className="card-name">{item.name}</div>
+              <div className="card-meta">{item.kind === "folder" ? "Folder" : formatSize(item.size)}</div>
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+
+  const renderList = (list: Item[]) => (
+    <div className="list">
+      {list.map((item) => (
+        <div className="list-row" key={`${item.kind}:${item.id}`}>
+          <span className={`card-icon ${item.kind}`}>
+            {item.kind === "folder" ? <FolderIcon size={18} /> : <FileIcon size={18} />}
+          </span>
+          <button className="grow list-open" onClick={() => openItem(item)}>
+            <span className="card-name">{item.name}</span>
+            <span className="card-meta">
+              {item.kind === "folder" ? "Folder" : `${formatSize(item.size)} · ${item.contentType}`}
+            </span>
+          </button>
+          <div className="list-actions">
+            {item.kind === "file" && (
+              <button className="icon-btn" title="Download" aria-label={`Download ${item.name}`} onClick={() => void onDownload(item)}>
+                <DownloadIcon size={15} />
+              </button>
+            )}
+            <button className="icon-btn" title="Rename" aria-label={`Rename ${item.name}`} onClick={() => renameItem(item)}>
+              <PencilIcon size={15} />
+            </button>
+            <button className="icon-btn danger" title="Delete" aria-label={`Delete ${item.name}`} onClick={() => askDelete(item)}>
+              <TrashIcon size={15} />
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+
+  const renderItems = (list: Item[]) => (view === "grid" ? renderGrid(list) : renderList(list));
+
+  const showEmpty = (icon: ReactNode, title: string, hint: string, action?: ReactNode) => (
+    <div className="empty">
+      <span className="empty-icon">{icon}</span>
+      <h4>{title}</h4>
+      <p>{hint}</p>
+      {action}
+    </div>
+  );
+
+  const newFolderBtn = (
+    <button className="btn btn-outline btn-sm" onClick={() => setPrompt({ mode: "newFolder" })}>
+      <FolderPlusIcon size={16} /> New folder
+    </button>
+  );
+  const uploadBtn = (
+    <button className="btn btn-outline btn-sm" onClick={() => fileInput.current?.click()}>
+      <UploadIcon size={16} /> Upload
+    </button>
+  );
 
   return (
     <div className="app">
@@ -274,7 +486,7 @@ export function DashboardPage() {
           </nav>
 
           <div className="toolbar">
-            <div className="search">
+            <div className="search grow">
               <SearchIcon size={16} />
               <input
                 className="input"
@@ -284,6 +496,7 @@ export function DashboardPage() {
                 aria-label="Search"
               />
             </div>
+            <SortMenu sort={sort} onChange={setSort} />
             <div className="segmented" role="group" aria-label="View mode">
               <button
                 className={view === "grid" ? "active" : ""}
@@ -321,208 +534,52 @@ export function DashboardPage() {
                 <div className="skeleton" key={i} />
               ))}
             </div>
-          ) : (
+          ) : sort.foldersFirst ? (
             <>
               <section>
                 <div className="section-head">
                   <h3>Folders</h3>
-                  <span className="count-pill">{shownFolders.length}</span>
+                  <span className="count-pill">{sortedFolders.length}</span>
                 </div>
-                {shownFolders.length === 0 ? (
-                  <EmptyState
-                    icon={<FolderIcon size={28} />}
-                    title={q ? "No matching folders" : "No folders yet"}
-                    hint={
-                      q
-                        ? "Try a different search term."
-                        : "Create a folder to organise your files."
-                    }
-                    action={
-                      !q && (
-                        <button className="btn btn-outline btn-sm" onClick={() => setPrompt({ mode: "newFolder" })}>
-                          <FolderPlusIcon size={16} /> New folder
-                        </button>
-                      )
-                    }
-                  />
-                ) : view === "grid" ? (
-                  <div className="grid">
-                    {shownFolders.map((f) => (
-                      <div className="card" key={f.id}>
-                        <div className="card-actions">
-                          <button
-                            className="icon-btn"
-                            title="Rename"
-                            aria-label={`Rename ${f.name}`}
-                            onClick={() =>
-                              setPrompt({ mode: "renameFolder", targetId: f.id, parentId: f.parentFolderId, initial: f.name })
-                            }
-                          >
-                            <PencilIcon size={15} />
-                          </button>
-                          <button
-                            className="icon-btn danger"
-                            title="Delete"
-                            aria-label={`Delete ${f.name}`}
-                            onClick={() => setConfirm({ kind: "folder", id: f.id, name: f.name })}
-                          >
-                            <TrashIcon size={15} />
-                          </button>
-                        </div>
-                        <div
-                          className="card-main"
-                          role="button"
-                          tabIndex={0}
-                          onClick={() => openFolder(f)}
-                          onKeyDown={(e) => e.key === "Enter" && openFolder(f)}
-                        >
-                          <span className="card-icon folder">
-                            <FolderIcon size={21} />
-                          </span>
-                          <div style={{ minWidth: 0 }}>
-                            <div className="card-name">{f.name}</div>
-                            <div className="card-meta">Folder</div>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="list">
-                    {shownFolders.map((f) => (
-                      <div className="list-row" key={f.id}>
-                        <span className="card-icon folder">
-                          <FolderIcon size={18} />
-                        </span>
-                        <button className="grow" onClick={() => openFolder(f)} style={{ border: "none", background: "none", textAlign: "left" }}>
-                          <span className="card-name">{f.name}</span>
-                          <span className="card-meta">Folder</span>
-                        </button>
-                        <div className="list-actions">
-                          <button
-                            className="icon-btn"
-                            title="Rename"
-                            aria-label={`Rename ${f.name}`}
-                            onClick={() =>
-                              setPrompt({ mode: "renameFolder", targetId: f.id, parentId: f.parentFolderId, initial: f.name })
-                            }
-                          >
-                            <PencilIcon size={15} />
-                          </button>
-                          <button
-                            className="icon-btn danger"
-                            title="Delete"
-                            aria-label={`Delete ${f.name}`}
-                            onClick={() => setConfirm({ kind: "folder", id: f.id, name: f.name })}
-                          >
-                            <TrashIcon size={15} />
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                {sortedFolders.length === 0
+                  ? showEmpty(
+                      <FolderIcon size={28} />,
+                      q ? "No matching folders" : "No folders yet",
+                      q ? "Try a different search term." : "Create a folder to organise your files.",
+                      !q ? newFolderBtn : undefined,
+                    )
+                  : renderItems(sortedFolders)}
               </section>
-
               <section>
                 <div className="section-head">
                   <h3>Files</h3>
-                  <span className="count-pill">{shownFiles.length}</span>
+                  <span className="count-pill">{sortedFiles.length}</span>
                 </div>
-                {shownFiles.length === 0 ? (
-                  <EmptyState
-                    icon={<FileIcon size={28} />}
-                    title={q ? "No matching files" : "No files yet"}
-                    hint={q ? "Try a different search term." : "Upload files to see them sync everywhere."}
-                    action={
-                      !q && (
-                        <button className="btn btn-outline btn-sm" onClick={() => fileInput.current?.click()}>
-                          <UploadIcon size={16} /> Upload
-                        </button>
-                      )
-                    }
-                  />
-                ) : view === "grid" ? (
-                  <div className="grid">
-                    {shownFiles.map((f) => (
-                      <div className="card" key={f.id}>
-                        <div className="card-actions">
-                          <button className="icon-btn" title="Download" aria-label={`Download ${f.name}`} onClick={() => void onDownload(f)}>
-                            <DownloadIcon size={15} />
-                          </button>
-                          <button
-                            className="icon-btn"
-                            title="Rename"
-                            aria-label={`Rename ${f.name}`}
-                            onClick={() => setPrompt({ mode: "renameFile", targetId: f.id, initial: f.name })}
-                          >
-                            <PencilIcon size={15} />
-                          </button>
-                          <button
-                            className="icon-btn danger"
-                            title="Delete"
-                            aria-label={`Delete ${f.name}`}
-                            onClick={() => setConfirm({ kind: "file", id: f.id, name: f.name })}
-                          >
-                            <TrashIcon size={15} />
-                          </button>
-                        </div>
-                        <div
-                          className="card-main"
-                          role="button"
-                          tabIndex={0}
-                          onClick={() => void onDownload(f)}
-                          onKeyDown={(e) => e.key === "Enter" && void onDownload(f)}
-                        >
-                          <span className="card-icon file">
-                            <FileIcon size={21} />
-                          </span>
-                          <div style={{ minWidth: 0 }}>
-                            <div className="card-name">{f.name}</div>
-                            <div className="card-meta">{formatSize(f.size)}</div>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="list">
-                    {shownFiles.map((f) => (
-                      <div className="list-row" key={f.id}>
-                        <span className="card-icon file">
-                          <FileIcon size={18} />
-                        </span>
-                        <button className="grow" onClick={() => void onDownload(f)} style={{ border: "none", background: "none", textAlign: "left" }}>
-                          <span className="card-name">{f.name}</span>
-                          <span className="card-meta">{formatSize(f.size)} · {f.contentType}</span>
-                        </button>
-                        <div className="list-actions">
-                          <button className="icon-btn" title="Download" aria-label={`Download ${f.name}`} onClick={() => void onDownload(f)}>
-                            <DownloadIcon size={15} />
-                          </button>
-                          <button
-                            className="icon-btn"
-                            title="Rename"
-                            aria-label={`Rename ${f.name}`}
-                            onClick={() => setPrompt({ mode: "renameFile", targetId: f.id, initial: f.name })}
-                          >
-                            <PencilIcon size={15} />
-                          </button>
-                          <button
-                            className="icon-btn danger"
-                            title="Delete"
-                            aria-label={`Delete ${f.name}`}
-                            onClick={() => setConfirm({ kind: "file", id: f.id, name: f.name })}
-                          >
-                            <TrashIcon size={15} />
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                {sortedFiles.length === 0
+                  ? showEmpty(
+                      <FileIcon size={28} />,
+                      q ? "No matching files" : "No files yet",
+                      q ? "Try a different search term." : "Upload files to see them sync everywhere.",
+                      !q ? uploadBtn : undefined,
+                    )
+                  : renderItems(sortedFiles)}
               </section>
             </>
+          ) : (
+            <section>
+              <div className="section-head">
+                <h3>All items</h3>
+                <span className="count-pill">{combined.length}</span>
+              </div>
+              {combined.length === 0
+                ? showEmpty(
+                    <SearchIcon size={28} />,
+                    q ? "No matches" : "This folder is empty",
+                    q ? "Try a different search term." : "Create a folder or upload files to get started.",
+                    !q ? newFolderBtn : undefined,
+                  )
+                : renderItems(combined)}
+            </section>
           )}
         </div>
       </div>
@@ -564,29 +621,7 @@ export function DashboardPage() {
   );
 }
 
-function EmptyState({
-  icon,
-  title,
-  hint,
-  action,
-}: {
-  icon: ReactNode;
-  title: string;
-  hint: string;
-  action?: ReactNode;
-}) {
-  return (
-    <div className="empty">
-      <span className="empty-icon">{icon}</span>
-      <h4>{title}</h4>
-      <p>{hint}</p>
-      {action}
-    </div>
-  );
-}
-
-function promptConfigFor(prompt: PromptState | null, crumbs: Crumb[]) {
-  const location = crumbs[crumbs.length - 1]?.name ?? "Root";
+function promptConfigFor(prompt: PromptState | null, location: string) {
   switch (prompt?.mode) {
     case "newFolder":
       return {
