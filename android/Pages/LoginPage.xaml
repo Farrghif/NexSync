@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="NexSync.Android.Pages.LoginPage"
+             Title="Sign In"
+             Shell.NavBarIsVisible="False"
+             BackgroundColor="{AppThemeBinding Light=#F6F7FB, Dark=#0B0C12}">
+
+    <ScrollView>
+        <VerticalStackLayout Padding="28,40" Spacing="16" VerticalOptions="Center">
+            
+            <HorizontalStackLayout Spacing="12" HorizontalOptions="Center" Margin="0,0,0,16">
+                <Frame BackgroundColor="#5B5BD6" CornerRadius="12" Padding="10" HasShadow="True" BorderColor="Transparent">
+                    <Label Text="☁" TextColor="White" FontSize="24" HorizontalOptions="Center" VerticalOptions="Center"/>
+                </Frame>
+                <Label Text="NexSync" FontSize="28" FontAttributes="Bold" VerticalOptions="Center"
+                       TextColor="{AppThemeBinding Light=#14161D, Dark=#F2F3F8}"/>
+            </HorizontalStackLayout>
+
+            <Label Text="Welcome Back" FontSize="22" FontAttributes="Bold" HorizontalTextAlignment="Center"
+                   TextColor="{AppThemeBinding Light=#14161D, Dark=#F2F3F8}"/>
+            <Label Text="Sign in to sync your workspace on Android" FontSize="13" TextColor="#8B90A0" HorizontalTextAlignment="Center" Margin="0,0,0,10"/>
+
+            <Frame BackgroundColor="{AppThemeBinding Light=#FFFFFF, Dark=#14161F}" CornerRadius="16" Padding="20" HasShadow="True" BorderColor="{AppThemeBinding Light=#E6E8EF, Dark=#262A38}">
+                <VerticalStackLayout Spacing="14">
+                    <Label Text="Server URL" FontSize="12" FontAttributes="Bold" TextColor="#8B90A0"/>
+                    <Entry x:Name="ServerUrlEntry" Placeholder="http://10.0.2.2:5189/api" Keyboard="Url"/>
+
+                    <Label Text="Email" FontSize="12" FontAttributes="Bold" TextColor="#8B90A0"/>
+                    <Entry x:Name="EmailEntry" Placeholder="you@example.com" Keyboard="Email"/>
+
+                    <Label Text="Password" FontSize="12" FontAttributes="Bold" TextColor="#8B90A0"/>
+                    <Entry x:Name="PasswordEntry" Placeholder="••••••••" IsPassword="True"/>
+
+                    <Label x:Name="ErrorLabel" TextColor="#C62B3C" FontSize="12" IsVisible="False" Margin="0,4"/>
+
+                    <Button x:Name="SignInBtn" Text="Sign In" BackgroundColor="#5B5BD6" TextColor="White" CornerRadius="10" HeightRequest="48"
+                            Clicked="OnSignInClicked" FontAttributes="Bold" Margin="0,8,0,0"/>
+
+                    <Button Text="Don't have an account? Register" TextColor="#5B5BD6" BackgroundColor="Transparent"
+                            Clicked="OnGoToRegisterClicked"/>
+                </VerticalStackLayout>
+            </Frame>
+            
+            <ActivityIndicator x:Name="BusyIndicator" IsRunning="False" IsVisible="False" Color="#5B5BD6"/>
+        </VerticalStackLayout>
+    </ScrollView>
+</ContentPage>

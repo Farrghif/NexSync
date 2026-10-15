@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="NexSync.Android.Pages.RegisterPage"
+             Title="Create Account"
+             BackgroundColor="{AppThemeBinding Light=#F6F7FB, Dark=#0B0C12}">
+
+    <ScrollView>
+        <VerticalStackLayout Padding="28,30" Spacing="16" VerticalOptions="Center">
+            
+            <Label Text="Create Account" FontSize="22" FontAttributes="Bold" HorizontalTextAlignment="Center"
+                   TextColor="{AppThemeBinding Light=#14161D, Dark=#F2F3F8}"/>
+            <Label Text="Join your private sync workspace" FontSize="13" TextColor="#8B90A0" HorizontalTextAlignment="Center" Margin="0,0,0,10"/>
+
+            <Frame BackgroundColor="{AppThemeBinding Light=#FFFFFF, Dark=#14161F}" CornerRadius="16" Padding="20" HasShadow="True" BorderColor="{AppThemeBinding Light=#E6E8EF, Dark=#262A38}">
+                <VerticalStackLayout Spacing="14">
+                    <Label Text="Full Name" FontSize="12" FontAttributes="Bold" TextColor="#8B90A0"/>
+                    <Entry x:Name="NameEntry" Placeholder="Ada Lovelace"/>
+
+                    <Label Text="Email" FontSize="12" FontAttributes="Bold" TextColor="#8B90A0"/>
+                    <Entry x:Name="EmailEntry" Placeholder="you@example.com" Keyboard="Email"/>
+
+                    <Label Text="Password (min 8 chars)" FontSize="12" FontAttributes="Bold" TextColor="#8B90A0"/>
+                    <Entry x:Name="PasswordEntry" Placeholder="••••••••" IsPassword="True"/>
+
+                    <Label x:Name="ErrorLabel" TextColor="#C62B3C" FontSize="12" IsVisible="False" Margin="0,4"/>
+
+                    <Button x:Name="RegisterBtn" Text="Create Account" BackgroundColor="#5B5BD6" TextColor="White" CornerRadius="10" HeightRequest="48"
+                            Clicked="OnRegisterClicked" FontAttributes="Bold" Margin="0,8,0,0"/>
+                </VerticalStackLayout>
+            </Frame>
+            
+            <ActivityIndicator x:Name="BusyIndicator" IsRunning="False" IsVisible="False" Color="#5B5BD6"/>
+        </VerticalStackLayout>
+    </ScrollView>
+</ContentPage>

@@ -47,6 +47,7 @@ interface FolderItem {
   createdAt: string;
   updatedAt: string;
   parentFolderId: string | null;
+  originDeviceId: string | null;
 }
 
 interface FileItem {
@@ -58,6 +59,7 @@ interface FileItem {
   folderId: string | null;
   size: number;
   contentType: string;
+  originDeviceId: string | null;
 }
 
 type Item = FolderItem | FileItem;
@@ -120,6 +122,7 @@ export function DashboardPage() {
   const [view, setView] = useState<ViewMode>("grid");
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortState>(loadSort);
+  const [deviceFilter, setDeviceFilter] = useState<string | null>(null);
   const [uploadPct, setUploadPct] = useState<number | null>(null);
   const [prompt, setPrompt] = useState<PromptState | null>(null);
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
@@ -127,6 +130,8 @@ export function DashboardPage() {
   const fileInput = useRef<HTMLInputElement>(null);
 
   const current = crumbs[crumbs.length - 1];
+  const device = currentDeviceId();
+  const isDeviceFiltering = deviceFilter !== null;
 
   useEffect(() => {
     localStorage.setItem(SORT_KEY, JSON.stringify(sort));
@@ -163,6 +168,7 @@ export function DashboardPage() {
   const items = useMemo<Item[]>(() => {
     const folderItems: FolderItem[] = folders
       .filter((f) => !q || f.name.toLowerCase().includes(q))
+      .filter((f) => !isDeviceFiltering || f.originDeviceId === deviceFilter)
       .map((f) => ({
         kind: "folder",
         id: f.id,
@@ -170,9 +176,11 @@ export function DashboardPage() {
         createdAt: f.createdAt,
         updatedAt: f.updatedAt,
         parentFolderId: f.parentFolderId,
+        originDeviceId: f.originDeviceId,
       }));
     const fileItems: FileItem[] = files
       .filter((f) => !q || f.name.toLowerCase().includes(q))
+      .filter((f) => !isDeviceFiltering || f.originDeviceId === deviceFilter)
       .map((f) => ({
         kind: "file",
         id: f.id,
@@ -182,9 +190,10 @@ export function DashboardPage() {
         folderId: f.folderId,
         size: f.size,
         contentType: f.contentType,
+        originDeviceId: f.originDeviceId,
       }));
     return [...folderItems, ...fileItems];
-  }, [folders, files, q]);
+  }, [folders, files, q, deviceFilter, isDeviceFiltering]);
 
   const comparator = useCallback(
     (a: Item, b: Item) => compareItems(a, b, sort.key, sort.dir),
@@ -289,7 +298,6 @@ export function DashboardPage() {
 
   const askDelete = (item: Item) => setConfirm({ kind: item.kind, id: item.id, name: item.name });
 
-  const device = currentDeviceId();
   const initials = (user?.fullName ?? user?.email ?? "?")
     .split(/\s+/)
     .map((s) => s[0])
@@ -399,19 +407,34 @@ export function DashboardPage() {
           <span className="brand-name">NexSync</span>
         </div>
         <nav className="side-nav">
-          <button className="nav-item active">
+          <button
+            className={`nav-item${!isDeviceFiltering ? " active" : ""}`}
+            onClick={() => setDeviceFilter(null)}
+            aria-pressed={!isDeviceFiltering}
+            title="Show all files and folders"
+          >
             <FolderIcon size={18} /> Files
           </button>
         </nav>
-        <div className="device-card">
+        <button
+          type="button"
+          className={`device-card-btn${isDeviceFiltering ? " active" : ""}`}
+          onClick={() => setDeviceFilter(isDeviceFiltering ? null : device)}
+          disabled={!device}
+          title={device ? (isDeviceFiltering ? "Show all — clear device filter" : "Show only files from this browser device") : undefined}
+          aria-pressed={isDeviceFiltering}
+        >
           <div className="device-row">
             <span className="device-dot" />
-            <span style={{ fontWeight: 650, fontSize: "0.86rem" }}>Browser device</span>
+            <span style={{ fontWeight: 650, fontSize: "0.86rem" }}>
+              {isDeviceFiltering ? "Device filter on" : "Browser device"}
+            </span>
           </div>
-          <span className="faint" style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <DeviceIcon size={14} /> {device ? `${device.slice(0, 12)}…` : "not enrolled"}
+          <span className="faint" style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+            <DeviceIcon size={14} />
+            {device ? (isDeviceFiltering ? "Tap to clear · " + device.slice(0, 12) + "…" : device.slice(0, 12) + "…") : "not enrolled"}
           </span>
-        </div>
+        </button>
         <div className="sidebar-spacer" />
         <button className="nav-item" onClick={toggleTheme}>
           {theme === "dark" ? <SunIcon size={18} /> : <MoonIcon size={18} />}
@@ -516,6 +539,27 @@ export function DashboardPage() {
               </button>
             </div>
           </div>
+
+          {isDeviceFiltering && !loading && (
+            <div className="filter-banner">
+              <DeviceIcon size={16} />
+              <span>
+                Only items from this device
+                <strong> — {device!.slice(0, 8)}…</strong>
+              </span>
+              <span className="count-pill">
+                {sortedFolders.length + sortedFiles.length} shown
+              </span>
+              <button
+                type="button"
+                className="btn btn-sm btn-outline"
+                onClick={() => setDeviceFilter(null)}
+                aria-label="Clear device filter"
+              >
+                Show all
+              </button>
+            </div>
+          )}
 
           {uploadPct !== null && (
             <div className="upload-banner">

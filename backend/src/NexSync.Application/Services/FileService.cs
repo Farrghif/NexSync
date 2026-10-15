@@ -14,10 +14,18 @@ public class FileService(
     IStorageService storage,
     ITransactionProvider transactions,
     ISyncChangeWriter changes,
-    IIdempotencyStore idempotency) : IFileService
+    IIdempotencyStore idempotency,
+    IOriginDeviceResolver? originResolver = null) : IFileService
 {
     private static readonly JsonSerializerOptions PayloadJson = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
-    private static FileDto Map(FileEntry f) => new(f.Id, f.Name, f.FolderId, f.Hash, f.Size, f.ContentType, f.CreatedAt, f.UpdatedAt);
+
+    private Task<Guid?> OriginDeviceIdAsync(Guid entityId)
+        => originResolver is null
+            ? Task.FromResult<Guid?>(null)
+            : originResolver.GetOriginDeviceIdAsync(entityId);
+
+    private static FileDto Map(FileEntry f, Guid? origin) => new(
+        f.Id, f.Name, f.FolderId, f.Hash, f.Size, f.ContentType, f.CreatedAt, f.UpdatedAt, origin);
 
     public async Task<FileDto> UploadAsync(Guid userId, Stream fileStream, string fileName, string contentType, Guid? folderId, Guid? deviceId = null, MutationContext? mutation = null)
     {
@@ -57,7 +65,7 @@ public class FileService(
         {
             await files.StageAsync(entry);
             var change = await changes.WriteFileChangeAsync(userId, entry.Id, SyncOperation.Created, fileName, folderId, hash, size, contentType, deviceId);
-            var dto = Map(entry);
+            var dto = Map(entry, change.OriginDeviceId);
             if (mutation is not null)
                 await idempotency.StageAsync(mutation.OperationId, userId, deviceId ?? Guid.Empty, fingerprint!,
                     mutation.SuccessStatus, JsonSerializer.Serialize(dto, PayloadJson), entry.Id, change.Sequence);
@@ -103,7 +111,7 @@ public class FileService(
         var f = await files.GetByIdAsync(fileId);
         if (f is null || f.OwnerId != userId)
             throw new ForbiddenException("Access denied.");
-        return Map(f);
+        return Map(f, await OriginDeviceIdAsync(f.Id));
     }
 
     public async Task<Stream> DownloadAsync(Guid userId, Guid fileId)
@@ -153,7 +161,7 @@ public class FileService(
         {
             files.StageUpdate(f);
             var change = await changes.WriteFileChangeAsync(userId, fileId, op, name, folderId, f.Hash, f.Size, f.ContentType, deviceId);
-            var dto = Map(f);
+            var dto = Map(f, change.OriginDeviceId);
             if (mutation is not null)
                 await idempotency.StageAsync(mutation.OperationId, userId, deviceId ?? Guid.Empty, fingerprint!,
                     mutation.SuccessStatus, JsonSerializer.Serialize(dto, PayloadJson), fileId, change.Sequence);
@@ -224,4 +232,3 @@ public class FileService(
         if (refs == 0) await storage.DeleteFileAsync(tombstone.StoragePath);
     }
 }
-

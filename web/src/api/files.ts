@@ -6,6 +6,7 @@ export interface FolderDto {
   parentFolderId: string | null;
   createdAt: string;
   updatedAt: string;
+  originDeviceId: string | null;
 }
 
 export interface FileDto {
@@ -17,6 +18,7 @@ export interface FileDto {
   contentType: string;
   createdAt: string;
   updatedAt: string;
+  originDeviceId: string | null;
 }
 
 export interface FolderContents {

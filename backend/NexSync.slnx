@@ -10,4 +10,5 @@
   </Folder>
   <Project Path="../desktop/NexSync.Desktop.Tests/NexSync.Desktop.Tests.csproj" />
   <Project Path="../desktop/NexSync.Desktop/NexSync.Desktop.csproj" />
+  <Project Path="../android/NexSync.Android.csproj" />
 </Solution>

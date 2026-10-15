@@ -14,7 +14,8 @@ public class FolderService(
     IStorageService storage,
     ITransactionProvider transactions,
     ISyncChangeWriter changes,
-    IIdempotencyStore idempotency) : IFolderService
+    IIdempotencyStore idempotency,
+    IOriginDeviceResolver? originResolver = null) : IFolderService
 {
     private static readonly JsonSerializerOptions PayloadJson = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 
@@ -32,8 +33,16 @@ public class FolderService(
             throw new OperationIdReuseException("X-Operation-Id was already used for a different request.");
     }
 
-    private static FolderDto Map(Folder f) => new(f.Id, f.Name, f.ParentFolderId, f.CreatedAt, f.UpdatedAt);
-    private static FileDto MapFile(FileEntry f) => new(f.Id, f.Name, f.FolderId, f.Hash, f.Size, f.ContentType, f.CreatedAt, f.UpdatedAt);
+    private static FolderDto Map(Folder f, Guid? origin) => new(
+        f.Id, f.Name, f.ParentFolderId, f.CreatedAt, f.UpdatedAt, origin);
+
+    private static FileDto MapFile(FileEntry f, Guid? origin) => new(
+        f.Id, f.Name, f.FolderId, f.Hash, f.Size, f.ContentType, f.CreatedAt, f.UpdatedAt, origin);
+
+    private Task<Guid?> OriginDeviceIdAsync(Guid entityId)
+        => originResolver is null
+            ? Task.FromResult<Guid?>(null)
+            : originResolver.GetOriginDeviceIdAsync(entityId);
 
     public async Task<FolderContentsResponse> GetContentsAsync(Guid userId, Guid? parentId, int page, int pageSize)
     {
@@ -53,10 +62,13 @@ public class FolderService(
         var pages = Math.Max(1, (int)Math.Ceiling((double)total / pageSize));
         var combined = folderList.Cast<object>().Concat(fileList.Cast<object>()).ToList();
         var slice = combined.Skip((page - 1) * pageSize).Take(pageSize).ToList();
-        return new FolderContentsResponse(
-            slice.OfType<Folder>().Select(Map).ToList(),
-            slice.OfType<FileEntry>().Select(MapFile).ToList(),
-            page, pageSize, total, pages);
+        var outFolders = new List<FolderDto>();
+        foreach (var f in slice.OfType<Folder>())
+            outFolders.Add(Map(f, await OriginDeviceIdAsync(f.Id)));
+        var outFiles = new List<FileDto>();
+        foreach (var f in slice.OfType<FileEntry>())
+            outFiles.Add(MapFile(f, await OriginDeviceIdAsync(f.Id)));
+        return new FolderContentsResponse(outFolders, outFiles, page, pageSize, total, pages);
     }
 
     public async Task<FolderDto> GetByIdAsync(Guid userId, Guid folderId)
@@ -64,7 +76,7 @@ public class FolderService(
         var f = await folders.GetByIdAsync(folderId);
         if (f is null || f.OwnerId != userId)
             throw new ForbiddenException("Access denied.");
-        return Map(f);
+        return Map(f, await OriginDeviceIdAsync(f.Id));
     }
 
     public async Task<FolderDto> CreateAsync(Guid userId, string name, Guid? parentFolderId, Guid? deviceId = null, MutationContext? mutation = null)
@@ -95,7 +107,7 @@ public class FolderService(
         {
             await folders.StageAsync(folder);
             var change = await changes.WriteFolderChangeAsync(userId, folder.Id, SyncOperation.Created, name, parentFolderId, deviceId);
-            var dto = Map(folder);
+            var dto = Map(folder, deviceId);
             if (mutation is not null)
                 await idempotency.StageAsync(mutation.OperationId, userId, deviceId ?? Guid.Empty, fingerprint!,
                     mutation.SuccessStatus, JsonSerializer.Serialize(dto, PayloadJson), folder.Id, change.Sequence);
@@ -160,7 +172,7 @@ public class FolderService(
         {
             folders.StageUpdate(folder);
             var change = await changes.WriteFolderChangeAsync(userId, folderId, op, name, parentFolderId, deviceId);
-            var dto = Map(folder);
+            var dto = Map(folder, change.OriginDeviceId);
             if (mutation is not null)
                 await idempotency.StageAsync(mutation.OperationId, userId, deviceId ?? Guid.Empty, fingerprint!,
                     mutation.SuccessStatus, JsonSerializer.Serialize(dto, PayloadJson), folderId, change.Sequence);
@@ -254,4 +266,3 @@ public class FolderService(
         }
     }
 }
-

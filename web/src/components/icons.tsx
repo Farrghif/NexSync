@@ -260,3 +260,13 @@ export const FolderFirstIcon = (p: IconProps) =>
       <path d="M12 13v5" />
     </>,
   );
+
+export const MenuIcon = (p: IconProps) =>
+  base(
+    p,
+    <>
+      <path d="M4 6h16" />
+      <path d="M4 12h16" />
+      <path d="M4 18h16" />
+    </>,
+  );

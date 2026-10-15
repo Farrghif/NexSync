@@ -17,6 +17,9 @@ Detail beku: `docs/PHASE2-BASELINE.md`. Bukti penerimaan E2E:
 - `desktop/` — WPF tray (.NET 10): watcher (debounce + hash gate), antrean
   dependency-ordered, push/pull pipeline, suppression anti-loop, manifest
   reconcile, conflict + remote-delete recovery, explicit empty/import setup.
+- `android/` — Aplikasi mobile native (.NET MAUI net10.0-android): autentikasi sesi,
+  pendaftaran perangkat Android, sinkronisasi file, download & open, upload berkas,
+  penyortiran, pencarian, dan filter khusus perangkat ini (This Device).
 - `docker/` — compose Postgres 17 untuk dev lokal.
 
 ## Mulai cepat

@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:vm="clr-namespace:NexSync.Android.ViewModels"
+             x:Class="NexSync.Android.Pages.BrowserPage"
+             Title="Files"
+             BackgroundColor="{AppThemeBinding Light=#F6F7FB, Dark=#0B0C12}">
+
+    <ContentPage.ToolbarItems>
+        <ToolbarItem Text="Upload" Clicked="OnUploadClicked"/>
+        <ToolbarItem Text="+ Folder" Clicked="OnNewFolderClicked"/>
+        <ToolbarItem Text="Sort" Clicked="OnSortClicked"/>
+        <ToolbarItem Text="Account" Clicked="OnAccountClicked"/>
+    </ContentPage.ToolbarItems>
+
+    <Grid RowDefinitions="Auto,Auto,Auto,*" Padding="14,10">
+
+        <!-- Breadcrumb Bar -->
+        <HorizontalStackLayout Grid.Row="0" Spacing="6" Margin="0,0,0,10">
+            <Button x:Name="BackBtn" Text="← Back" BackgroundColor="Transparent" TextColor="#5B5BD6"
+                    FontAttributes="Bold" Padding="0" Clicked="OnBackClicked" IsVisible="False"/>
+            <Label x:Name="CurrentPathLabel" Text="Root" FontSize="16" FontAttributes="Bold"
+                   TextColor="{AppThemeBinding Light=#14161D, Dark=#F2F3F8}" VerticalOptions="Center"/>
+        </HorizontalStackLayout>
+
+        <!-- Search Bar -->
+        <SearchBar Grid.Row="1" x:Name="SearchBox" Placeholder="Search files &amp; folders..."
+                   TextChanged="OnSearchTextChanged" Margin="0,0,0,8"/>
+
+        <!-- Device Filter Bar (Toggle Button) -->
+        <Frame Grid.Row="2" x:Name="DeviceFilterFrame" BackgroundColor="{AppThemeBinding Light=#EEF0FF, Dark=#21223A}"
+               BorderColor="#5B5BD6" CornerRadius="10" Padding="12,8" Margin="0,0,0,10">
+            <Grid ColumnDefinitions="Auto,*,Auto">
+                <Label Grid.Column="0" Text="📱" FontSize="16" VerticalOptions="Center" Margin="0,0,8,0"/>
+                <VerticalStackLayout Grid.Column="1" VerticalOptions="Center">
+                    <Label x:Name="DeviceFilterTitleLabel" Text="Filter: This Device" FontSize="12" FontAttributes="Bold" TextColor="#5B5BD6"/>
+                    <Label x:Name="DeviceFilterSubtitleLabel" Text="Tap to toggle filter" FontSize="11" TextColor="#8B90A0"/>
+                </VerticalStackLayout>
+                <Button Grid.Column="2" x:Name="DeviceFilterToggleBtn" Text="All Files" FontSize="11"
+                        BackgroundColor="#5B5BD6" TextColor="White" CornerRadius="8" Padding="10,0" HeightRequest="32"
+                        Clicked="OnDeviceFilterToggleClicked"/>
+            </Grid>
+        </Frame>
+
+        <!-- Refresh View with Collection -->
+        <RefreshView Grid.Row="3" x:Name="Refresher" Refreshing="OnRefreshing" RefreshColor="#5B5BD6">
+            <CollectionView x:Name="ItemsCollection" SelectionMode="None">
+                <CollectionView.EmptyView>
+                    <VerticalStackLayout HorizontalOptions="Center" VerticalOptions="Center" Padding="40" Spacing="10">
+                        <Label Text="📂" FontSize="44" HorizontalTextAlignment="Center"/>
+                        <Label Text="No items in this folder" FontSize="16" FontAttributes="Bold" HorizontalTextAlignment="Center"
+                               TextColor="{AppThemeBinding Light=#14161D, Dark=#F2F3F8}"/>
+                        <Label Text="Use the toolbar to upload files or create new folders." FontSize="12" TextColor="#8B90A0" HorizontalTextAlignment="Center"/>
+                    </VerticalStackLayout>
+                </CollectionView.EmptyView>
+                <CollectionView.ItemTemplate>
+                    <DataTemplate x:DataType="vm:UiItem">
+                        <SwipeView>
+                            <SwipeView.RightItems>
+                                <SwipeItems Mode="Reveal">
+                                    <SwipeItem Text="Rename" BackgroundColor="#5B5BD6" Invoked="OnRenameItemInvoked"/>
+                                    <SwipeItem Text="Delete" BackgroundColor="#C62B3C" Invoked="OnDeleteItemInvoked"/>
+                                </SwipeItems>
+                            </SwipeView.RightItems>
+                            
+                            <Frame BackgroundColor="{AppThemeBinding Light=#FFFFFF, Dark=#14161F}"
+                                   BorderColor="{AppThemeBinding Light=#E6E8EF, Dark=#262A38}"
+                                   CornerRadius="12" Padding="12" Margin="0,3" HasShadow="False">
+                                <Frame.GestureRecognizers>
+                                    <TapGestureRecognizer Tapped="OnItemTapped"/>
+                                </Frame.GestureRecognizers>
+                                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+                                    <Label Grid.Column="0" Text="{Binding IconText}" FontSize="24" VerticalOptions="Center"/>
+                                    <VerticalStackLayout Grid.Column="1" VerticalOptions="Center" Spacing="2">
+                                        <Label Text="{Binding Name}" FontSize="14" FontAttributes="Bold"
+                                               TextColor="{AppThemeBinding Light=#14161D, Dark=#F2F3F8}" LineBreakMode="TailTruncation"/>
+                                        <Label Text="{Binding SubtitleText}" FontSize="11" TextColor="#8B90A0" LineBreakMode="TailTruncation"/>
+                                    </VerticalStackLayout>
+                                    <Label Grid.Column="2" Text="⋮" FontSize="18" TextColor="#8B90A0" VerticalOptions="Center" Padding="8,0"/>
+                                </Grid>
+                            </Frame>
+                        </SwipeView>
+                    </DataTemplate>
+                </CollectionView.ItemTemplate>
+            </CollectionView>
+        </RefreshView>
+
+    </Grid>
+</ContentPage>
