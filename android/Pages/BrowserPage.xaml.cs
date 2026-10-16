@@ -32,6 +32,7 @@ public partial class BrowserPage : ContentPage
         }
 
         UpdateDeviceFilterUi();
+        UpdateSyncStatus();
         await LoadCurrentFolderAsync();
     }
 
@@ -41,6 +42,7 @@ public partial class BrowserPage : ContentPage
     private async Task LoadCurrentFolderAsync()
     {
         Refresher.IsRefreshing = true;
+        UpdateSyncStatus();
         try
         {
             var contents = await _files.GetContentsAsync(CurrentFolderId);
@@ -90,12 +92,13 @@ public partial class BrowserPage : ContentPage
             Refresher.IsRefreshing = false;
             CurrentPathLabel.Text = CurrentFolderName;
             BackBtn.IsVisible = _navStack.Count > 0;
+            UpdateSyncStatus();
         }
     }
 
     private void ApplyFiltersAndSort()
     {
-        var q = SearchBox.Text?.Trim().ToLowerInvariant() ?? "";
+        var q = SearchBox?.Text?.Trim().ToLowerInvariant() ?? "";
         var currentDev = SecureStore.CurrentDeviceId;
 
         var filtered = _allItems.AsEnumerable();
@@ -117,7 +120,46 @@ public partial class BrowserPage : ContentPage
             _ => filtered.OrderBy(x => !x.IsFolder).ThenBy(x => x.Name)
         };
 
-        ItemsCollection.ItemsSource = new ObservableCollection<UiItem>(filtered);
+        var result = filtered.ToList();
+        ItemsCollection.ItemsSource = new ObservableCollection<UiItem>(result);
+
+        // Search clear affordance
+        if (SearchClearBtn != null)
+            SearchClearBtn.IsVisible = !string.IsNullOrEmpty(q);
+
+        // Count pill
+        if (DeviceFilterCountLabel != null)
+            DeviceFilterCountLabel.Text = $"{result.Count}";
+
+        // EmptyView helpers
+        if (EmptyTitleLabel != null && EmptySubtitleLabel != null && EmptyActionBtn != null)
+        {
+            if (result.Count == 0 && !string.IsNullOrEmpty(q))
+            {
+                EmptyTitleLabel.Text = $"No matching files for '{q}'";
+                EmptySubtitleLabel.Text = "Try a different search term or clear the filter.";
+                EmptyActionBtn.IsVisible = true;
+                EmptyActionBtn.Text = "Clear search";
+            }
+            else if (result.Count == 0 && _filterThisDeviceOnly)
+            {
+                EmptyTitleLabel.Text = "No files from this device here";
+                EmptySubtitleLabel.Text = "Switch to All Files to see everything in this folder.";
+                EmptyActionBtn.IsVisible = true;
+                EmptyActionBtn.Text = "Show all files";
+            }
+            else if (result.Count == 0)
+            {
+                EmptyTitleLabel.Text = "This folder is empty";
+                EmptySubtitleLabel.Text = "Upload files or create a folder to get started.";
+                EmptyActionBtn.IsVisible = false;
+            }
+            else
+            {
+                // has results — keep defaults invisible
+                EmptyActionBtn.IsVisible = false;
+            }
+        }
     }
 
     private void UpdateDeviceFilterUi()
@@ -138,6 +180,43 @@ public partial class BrowserPage : ContentPage
             DeviceFilterToggleBtn.Text = "This Device";
             DeviceFilterToggleBtn.BackgroundColor = Color.FromArgb("#5B5BD6");
         }
+
+        UpdateSyncStatus();
+    }
+
+    private void UpdateSyncStatus()
+    {
+        if (SyncStatusLabel == null || SyncStatusDot == null || SyncStatusDetailLabel == null)
+            return;
+
+        try
+        {
+            var offline = Connectivity.Current.NetworkAccess != NetworkAccess.Internet;
+            if (offline)
+            {
+                SyncStatusLabel.Text = "Offline";
+                SyncStatusDetailLabel.Text = "No internet connection";
+                SyncStatusDot.BackgroundColor = Color.FromArgb("#8B90A0");
+                return;
+            }
+        }
+        catch
+        {
+            // Connectivity not available in some test contexts — assume online
+        }
+
+        if (Refresher != null && Refresher.IsRefreshing)
+        {
+            SyncStatusLabel.Text = "Syncing";
+            SyncStatusDetailLabel.Text = "Refreshing…";
+            if (SyncStatusDot != null) SyncStatusDot.BackgroundColor = Color.FromArgb("#F59E0B");
+        }
+        else
+        {
+            SyncStatusLabel.Text = "All synced";
+            SyncStatusDetailLabel.Text = "Up to date";
+            SyncStatusDot.BackgroundColor = Color.FromArgb("#1DB954");
+        }
     }
 
     private void OnDeviceFilterToggleClicked(object sender, EventArgs e)
@@ -149,6 +228,19 @@ public partial class BrowserPage : ContentPage
 
     private void OnSearchTextChanged(object sender, TextChangedEventArgs e)
     {
+        ApplyFiltersAndSort();
+    }
+
+    private void OnSearchClearClicked(object sender, EventArgs e)
+    {
+        if (_filterThisDeviceOnly && EmptyActionBtn != null && EmptyActionBtn.IsVisible && string.IsNullOrEmpty(SearchBox?.Text))
+        {
+            // Empty due to device filter — toggle it
+            _filterThisDeviceOnly = false;
+            UpdateDeviceFilterUi();
+        }
+        if (SearchBox != null)
+            SearchBox.Text = string.Empty;
         ApplyFiltersAndSort();
     }
 

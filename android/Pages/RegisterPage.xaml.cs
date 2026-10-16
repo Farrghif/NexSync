@@ -46,16 +46,35 @@ public partial class RegisterPage : ContentPage
         }
     }
 
+    private async void OnGoToSignInClicked(object sender, EventArgs e)
+    {
+        await Navigation.PopAsync();
+    }
+
+    private void OnTogglePasswordClicked(object sender, EventArgs e)
+    {
+        PasswordEntry.IsPassword = !PasswordEntry.IsPassword;
+        TogglePasswordBtn.Text = PasswordEntry.IsPassword ? "Show" : "Hide";
+    }
+
     private void SetBusy(bool busy)
     {
         RegisterBtn.IsEnabled = !busy;
+        RegisterBtn.Opacity = busy ? 0.7 : 1;
+        RegisterBtn.Text = busy ? "" : "Create Account";
         BusyIndicator.IsRunning = busy;
         BusyIndicator.IsVisible = busy;
+        NameEntry.IsEnabled = !busy;
+        EmailEntry.IsEnabled = !busy;
+        PasswordEntry.IsEnabled = !busy;
+        TogglePasswordBtn.IsEnabled = !busy;
     }
 
     private void ShowError(string msg)
     {
         ErrorLabel.Text = msg;
-        ErrorLabel.IsVisible = !string.IsNullOrWhiteSpace(msg);
+        var show = !string.IsNullOrWhiteSpace(msg);
+        ErrorLabel.IsVisible = show;
+        if (ErrorFrame != null) ErrorFrame.IsVisible = show;
     }
 }

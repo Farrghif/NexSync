@@ -6,31 +6,85 @@
              BackgroundColor="{AppThemeBinding Light=#F6F7FB, Dark=#0B0C12}">
 
     <ScrollView>
-        <VerticalStackLayout Padding="28,30" Spacing="16" VerticalOptions="Center">
-            
-            <Label Text="Create Account" FontSize="22" FontAttributes="Bold" HorizontalTextAlignment="Center"
+        <VerticalStackLayout Padding="24,28" Spacing="0" HorizontalOptions="Center" MaximumWidthRequest="480" VerticalOptions="Center">
+
+            <!-- Brand badge -->
+            <HorizontalStackLayout Spacing="12" HorizontalOptions="Center" Margin="0,0,0,16">
+                <Frame BackgroundColor="#5B5BD6" CornerRadius="12" WidthRequest="44" HeightRequest="44" Padding="0" HasShadow="False" BorderColor="Transparent" VerticalOptions="Center">
+                    <Label Text="☁" TextColor="White" FontSize="22" HorizontalOptions="Center" VerticalOptions="Center"/>
+                </Frame>
+                <Label Text="NexSync" FontSize="26" FontAttributes="Bold" VerticalOptions="Center"
+                       TextColor="{AppThemeBinding Light=#14161D, Dark=#F2F3F8}"/>
+            </HorizontalStackLayout>
+
+            <Label Text="Create Account" FontSize="20" FontAttributes="Bold" HorizontalTextAlignment="Center"
                    TextColor="{AppThemeBinding Light=#14161D, Dark=#F2F3F8}"/>
-            <Label Text="Join your private sync workspace" FontSize="13" TextColor="#8B90A0" HorizontalTextAlignment="Center" Margin="0,0,0,10"/>
+            <Label Text="Join your private sync workspace" FontSize="12" TextColor="#8B90A0" HorizontalTextAlignment="Center" Margin="0,4,0,16"/>
 
-            <Frame BackgroundColor="{AppThemeBinding Light=#FFFFFF, Dark=#14161F}" CornerRadius="16" Padding="20" HasShadow="True" BorderColor="{AppThemeBinding Light=#E6E8EF, Dark=#262A38}">
+            <!-- Card -->
+            <Frame BackgroundColor="{AppThemeBinding Light=#FFFFFF, Dark=#14161F}"
+                   BorderColor="{AppThemeBinding Light=#E6E8EF, Dark=#262A38}"
+                   CornerRadius="16" Padding="20" HasShadow="False">
                 <VerticalStackLayout Spacing="14">
-                    <Label Text="Full Name" FontSize="12" FontAttributes="Bold" TextColor="#8B90A0"/>
-                    <Entry x:Name="NameEntry" Placeholder="Ada Lovelace"/>
 
-                    <Label Text="Email" FontSize="12" FontAttributes="Bold" TextColor="#8B90A0"/>
-                    <Entry x:Name="EmailEntry" Placeholder="you@example.com" Keyboard="Email"/>
+                    <VerticalStackLayout Spacing="6">
+                        <Label Text="FULL NAME" FontSize="11" FontAttributes="Bold" TextColor="#8B90A0"/>
+                        <Border Stroke="{AppThemeBinding Light=#E6E8EF, Dark=#262A38}" StrokeThickness="1"
+                                BackgroundColor="{AppThemeBinding Light=#FFFFFF, Dark=#0F111A}" Padding="10,1">
+                            <Border.StrokeShape><RoundRectangle CornerRadius="10"/></Border.StrokeShape>
+                            <Entry x:Name="NameEntry" Placeholder="Ada Lovelace" ReturnType="Next"
+                                   FontSize="14" TextColor="{AppThemeBinding Light=#14161D, Dark=#F2F3F8}" PlaceholderColor="#8B90A0"
+                                   BackgroundColor="Transparent"/>
+                        </Border>
+                    </VerticalStackLayout>
 
-                    <Label Text="Password (min 8 chars)" FontSize="12" FontAttributes="Bold" TextColor="#8B90A0"/>
-                    <Entry x:Name="PasswordEntry" Placeholder="••••••••" IsPassword="True"/>
+                    <VerticalStackLayout Spacing="6">
+                        <Label Text="EMAIL" FontSize="11" FontAttributes="Bold" TextColor="#8B90A0"/>
+                        <Border Stroke="{AppThemeBinding Light=#E6E8EF, Dark=#262A38}" StrokeThickness="1"
+                                BackgroundColor="{AppThemeBinding Light=#FFFFFF, Dark=#0F111A}" Padding="10,1">
+                            <Border.StrokeShape><RoundRectangle CornerRadius="10"/></Border.StrokeShape>
+                            <Entry x:Name="EmailEntry" Placeholder="you@example.com" Keyboard="Email" ReturnType="Next"
+                                   FontSize="14" TextColor="{AppThemeBinding Light=#14161D, Dark=#F2F3F8}" PlaceholderColor="#8B90A0"
+                                   BackgroundColor="Transparent"/>
+                        </Border>
+                    </VerticalStackLayout>
 
-                    <Label x:Name="ErrorLabel" TextColor="#C62B3C" FontSize="12" IsVisible="False" Margin="0,4"/>
+                    <VerticalStackLayout Spacing="6">
+                        <Label Text="PASSWORD" FontSize="11" FontAttributes="Bold" TextColor="#8B90A0"/>
+                        <Border Stroke="{AppThemeBinding Light=#E6E8EF, Dark=#262A38}" StrokeThickness="1"
+                                BackgroundColor="{AppThemeBinding Light=#FFFFFF, Dark=#0F111A}" Padding="10,1">
+                            <Border.StrokeShape><RoundRectangle CornerRadius="10"/></Border.StrokeShape>
+                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="0">
+                                <Entry x:Name="PasswordEntry" Placeholder="••••••••" IsPassword="True" ReturnType="Done"
+                                       FontSize="14" TextColor="{AppThemeBinding Light=#14161D, Dark=#F2F3F8}" PlaceholderColor="#8B90A0"
+                                       BackgroundColor="Transparent" Completed="OnRegisterClicked"/>
+                                <Button Grid.Column="1" x:Name="TogglePasswordBtn" Text="Show" FontSize="11" FontAttributes="Bold"
+                                        TextColor="#5B5BD6" BackgroundColor="Transparent" Padding="8,0"
+                                        Clicked="OnTogglePasswordClicked"/>
+                            </Grid>
+                        </Border>
+                        <Label Text="At least 8 characters" FontSize="10" TextColor="#8B90A0"/>
+                    </VerticalStackLayout>
 
-                    <Button x:Name="RegisterBtn" Text="Create Account" BackgroundColor="#5B5BD6" TextColor="White" CornerRadius="10" HeightRequest="48"
-                            Clicked="OnRegisterClicked" FontAttributes="Bold" Margin="0,8,0,0"/>
+                    <!-- Error -->
+                    <Border x:Name="ErrorFrame" IsVisible="False" StrokeThickness="0" BackgroundColor="#FDECEE" Padding="10">
+                        <Border.StrokeShape><RoundRectangle CornerRadius="10"/></Border.StrokeShape>
+                        <Label x:Name="ErrorLabel" TextColor="#C62B3C" FontSize="12" IsVisible="False"/>
+                    </Border>
+
+                    <Grid Margin="0,6,0,0">
+                        <Button x:Name="RegisterBtn" Text="Create Account" BackgroundColor="#5B5BD6" TextColor="White"
+                                CornerRadius="12" HeightRequest="48" FontAttributes="Bold" FontSize="14"
+                                Clicked="OnRegisterClicked"/>
+                        <ActivityIndicator x:Name="BusyIndicator" IsRunning="False" IsVisible="False"
+                                           Color="White" HeightRequest="22" WidthRequest="22"
+                                           HorizontalOptions="Center" VerticalOptions="Center" InputTransparent="True"/>
+                    </Grid>
+
+                    <Button Text="Already have an account?  Sign in →" TextColor="#5B5BD6" FontSize="13"
+                            BackgroundColor="Transparent" Clicked="OnGoToSignInClicked" Padding="0" Margin="0,4,0,0"/>
                 </VerticalStackLayout>
             </Frame>
-            
-            <ActivityIndicator x:Name="BusyIndicator" IsRunning="False" IsVisible="False" Color="#5B5BD6"/>
         </VerticalStackLayout>
     </ScrollView>
 </ContentPage>

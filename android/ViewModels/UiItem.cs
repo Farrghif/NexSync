@@ -18,6 +18,9 @@ public sealed class UiItem
         ? "Folder"
         : $"{FormatSize(Size)} · {ContentType}";
 
+    // Green = synced (server confirmed), grey for folders/pending
+    public string SyncDotColor => IsFolder ? "#8B90A0" : "#1DB954";
+
     private static string FormatSize(long bytes)
     {
         if (bytes < 1024) return $"{bytes} B";

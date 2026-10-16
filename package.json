@@ -1,4 +1,17 @@
 {
+  "name": "nexsync",
+  "private": true,
+  "version": "2.0.0",
+  "description": "NexSync — private file sync (server + web + desktop + android)",
+  "scripts": {
+    "dev": "npm run dev --prefix web",
+    "dev:web": "npm run dev --prefix web",
+    "build": "npm run build --prefix web",
+    "build:web": "npm run build --prefix web",
+    "lint": "npm run lint --prefix web",
+    "lint:web": "npm run lint --prefix web",
+    "install:web": "npm install --prefix web"
+  },
   "dependencies": {
     "@opencode/cli": "^2.0.30"
   }

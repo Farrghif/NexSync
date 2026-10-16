@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type CSSProperties } from "react";
 import { useAuth } from "../contexts/AuthContext";
 import { currentDeviceId } from "../api/auth";
 import {
@@ -15,7 +15,7 @@ import { DEFAULT_SORT, isValidSort, type SortDir, type SortKey, type SortState }
 import {
   ChevronRight, CloudIcon, DeviceIcon, DownloadIcon, FileIcon, FolderIcon,
   FolderPlusIcon, GridIcon, ListIcon, LogoutIcon, MoonIcon, PencilIcon,
-  SearchIcon, SunIcon, TrashIcon, UploadIcon,
+  SearchIcon, SunIcon, TrashIcon, UploadIcon, CheckIcon, AlertIcon,
 } from "../components/icons";
 
 interface Crumb {
@@ -64,6 +64,9 @@ interface FileItem {
 
 type Item = FolderItem | FileItem;
 
+// extensible sync model — backend doesn't provide per-file status yet, derive client-side
+type SyncStatus = "synced" | "pending" | "syncing" | "failed" | "offline";
+
 const SORT_KEY = "nexsync:sort";
 const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
 
@@ -110,6 +113,76 @@ function compareItems(a: Item, b: Item, key: SortKey, dir: SortDir): number {
   return m * r;
 }
 
+// keep values in the form the platform already gives you — no extra deps
+
+type FileKind = "image" | "pdf" | "archive" | "audio" | "video" | "doc" | "sheet" | "code" | "file";
+
+function getFileKind(contentType: string, name: string): FileKind {
+  const ct = (contentType || "").toLowerCase();
+  const ext = (name.split(".").pop() || "").toLowerCase();
+  if (ct.startsWith("image/")) return "image";
+  if (ct.includes("pdf") || ext === "pdf") return "pdf";
+  if (ct.includes("zip") || ct.includes("archive") || ct.includes("compressed") || ["zip", "rar", "7z", "tar", "gz", "bz2"].includes(ext)) return "archive";
+  if (ct.startsWith("audio/")) return "audio";
+  if (ct.startsWith("video/")) return "video";
+  if (ct.includes("spreadsheet") || ct.includes("excel") || ["xls", "xlsx", "csv"].includes(ext)) return "sheet";
+  if (ct.includes("presentation") || ["ppt", "pptx"].includes(ext)) return "doc";
+  if (ct.includes("word") || ct.includes("document") || ["doc", "docx"].includes(ext)) return "doc";
+  if (["js", "ts", "tsx", "jsx", "json", "html", "css", "py", "rs", "go", "java", "cs", "cpp", "c", "h", "yml", "yaml", "md"].includes(ext)) return "code";
+  return "file";
+}
+
+function fileKindStyle(kind: FileKind): CSSProperties {
+  // uses existing CSS variables so theme stays consistent
+  switch (kind) {
+    case "image":
+      return { background: "color-mix(in srgb, var(--brand) 14%, var(--surface))", color: "var(--brand)", border: "1px solid color-mix(in srgb, var(--brand) 18%, transparent)" };
+    case "pdf":
+      return { background: "var(--danger-soft)", color: "var(--danger)", border: "1px solid color-mix(in srgb, var(--danger) 18%, transparent)" };
+    case "archive":
+      return { background: "var(--warning-soft)", color: "var(--warning)", border: "1px solid color-mix(in srgb, var(--warning) 18%, transparent)" };
+    case "audio":
+    case "video":
+      return { background: "var(--brand-soft)", color: "var(--brand)", border: "1px solid color-mix(in srgb, var(--brand) 18%, transparent)" };
+    case "sheet":
+      return { background: "var(--success-soft)", color: "var(--success)", border: "1px solid color-mix(in srgb, var(--success) 18%, transparent)" };
+    case "doc":
+      return { background: "color-mix(in srgb, var(--brand) 10%, var(--surface-2))", color: "var(--brand)", border: "1px solid var(--border)" };
+    case "code":
+      return { background: "var(--surface-3)", color: "var(--text-muted)", border: "1px solid var(--border)" };
+    default:
+      return { background: "var(--surface-3)", color: "var(--text-muted)", border: "1px solid var(--border)" };
+  }
+}
+
+function deriveSyncStatus(item: Item, isOffline: boolean, pendingIds: Set<string>): SyncStatus {
+  if (isOffline) return "offline";
+  if (pendingIds.has(item.id)) return "pending";
+  // future: check syncing/failed sets here — keep model extensible for Pending/Syncing/Failed/Offline
+  if (!item.id) return "pending";
+  // synced is default — file exists, has id, has size/contentType or folder has id
+  return "synced";
+}
+
+function formatRelativeSync(d: Date | null): string {
+  if (!d) return "—";
+  const diff = Date.now() - d.getTime();
+  if (diff < 60_000) return "just now";
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
+  return d.toLocaleString();
+}
+
+function MoreIcon({ size = 16 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <circle cx="12" cy="12" r="1.7" fill="currentColor" />
+      <circle cx="12" cy="5.4" r="1.7" fill="currentColor" />
+      <circle cx="12" cy="18.6" r="1.7" fill="currentColor" />
+    </svg>
+  );
+}
+
 export function DashboardPage() {
   const { user, logout } = useAuth();
   const toast = useToast();
@@ -127,7 +200,19 @@ export function DashboardPage() {
   const [prompt, setPrompt] = useState<PromptState | null>(null);
   const [confirm, setConfirm] = useState<ConfirmState | null>(null);
   const [busy, setBusy] = useState(false);
+  const [online, setOnline] = useState<boolean>(() => (typeof navigator !== "undefined" ? navigator.onLine : true));
+  const [lastSyncAt, setLastSyncAt] = useState<Date | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [showDeviceDetails, setShowDeviceDetails] = useState(false);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(() => new Set());
+  const lastSelectedRef = useRef<string | null>(null);
+  // tick forces relative time refresh every 30s without extra deps
+  const [, setTick] = useState(0);
   const fileInput = useRef<HTMLInputElement>(null);
+
+  const keyFor = useCallback((item: Item) => `${item.kind}:${item.id}`, []);
 
   const current = crumbs[crumbs.length - 1];
   const device = currentDeviceId();
@@ -137,14 +222,52 @@ export function DashboardPage() {
     localStorage.setItem(SORT_KEY, JSON.stringify(sort));
   }, [sort]);
 
+  useEffect(() => {
+    const onOnline = () => setOnline(true);
+    const onOffline = () => setOnline(false);
+    window.addEventListener("online", onOnline);
+    window.addEventListener("offline", onOffline);
+    return () => {
+      window.removeEventListener("online", onOnline);
+      window.removeEventListener("offline", onOffline);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!lastSyncAt) return;
+    const id = window.setInterval(() => setTick((t) => t + 1), 30_000);
+    return () => window.clearInterval(id);
+  }, [lastSyncAt]);
+
+  useEffect(() => {
+    if (!openMenuId) return;
+    const onDoc = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest("[data-kebab-root]")) setOpenMenuId(null);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpenMenuId(null);
+    };
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [openMenuId]);
+
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const data = await getContents(current.id);
       setFolders(data.folders);
       setFiles(data.files);
+      setLastSyncAt(new Date());
     } catch (e) {
-      toast.error(describeError(e));
+      const msg = describeError(e);
+      setLoadError(msg);
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
@@ -154,12 +277,37 @@ export function DashboardPage() {
     void load();
   }, [load]);
 
+  const enterSelectMode = useCallback((initialKey?: string) => {
+    setSelectMode(true);
+    if (initialKey) {
+      setSelected(new Set([initialKey]));
+      lastSelectedRef.current = initialKey;
+    } else {
+      setSelected(new Set());
+      lastSelectedRef.current = null;
+    }
+  }, []);
+  const exitSelectMode = useCallback(() => {
+    setSelectMode(false);
+    setSelected(new Set());
+    lastSelectedRef.current = null;
+  }, []);
+  const clearSelection = useCallback(() => {
+    if (selected.size === 0) { setSelectMode(false); lastSelectedRef.current = null; return; }
+    setSelected(new Set());
+    lastSelectedRef.current = null;
+  }, [selected.size]);
+
   const enterFolder = (item: FolderItem) => {
+    if (selectMode) exitSelectMode(); else clearSelection();
     setQuery("");
+    setOpenMenuId(null);
     setCrumbs((c) => [...c, { id: item.id, name: item.name }]);
   };
   const goCrumb = (i: number) => {
+    if (selectMode) exitSelectMode(); else clearSelection();
     setQuery("");
+    setOpenMenuId(null);
     setCrumbs((c) => c.slice(0, i + 1));
   };
 
@@ -209,6 +357,88 @@ export function DashboardPage() {
     [items, comparator],
   );
   const combined = useMemo(() => items.slice().sort(comparator), [items, comparator]);
+
+  // pendingIds stays empty for now — all existing files are Synced — keep extensible
+  const pendingIds = useMemo(() => new Set<string>(), []);
+  const pendingCount = uploadPct !== null ? 1 : 0;
+
+  // --- selection (Explorer-like): Ctrl/Cmd toggle, Shift range, checkbox, Select all ---
+  // prune stale ids when folder/filter changes
+  useEffect(() => {
+    if (selected.size === 0) return;
+    const alive = new Set(items.map((it) => keyFor(it)));
+    let changed = false;
+    const next = new Set<string>();
+    selected.forEach((k) => { if (alive.has(k)) next.add(k); else changed = true; });
+    if (changed) setSelected(next);
+    if (changed && lastSelectedRef.current && !alive.has(lastSelectedRef.current)) lastSelectedRef.current = null;
+  }, [items, keyFor, selected]);
+
+  const isSelected = useCallback((k: string) => selected.has(k), [selected]);
+
+  const toggleOne = useCallback((k: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(k)) next.delete(k);
+      else next.add(k);
+      return next;
+    });
+    lastSelectedRef.current = k;
+  }, []);
+
+  const selectRange = useCallback((ordered: Item[], targetKey: string) => {
+    const last = lastSelectedRef.current;
+    if (!last) { toggleOne(targetKey); return; }
+    const keys = ordered.map((it) => keyFor(it));
+    const a = keys.indexOf(last);
+    const b = keys.indexOf(targetKey);
+    if (a === -1 || b === -1) { toggleOne(targetKey); return; }
+    const [lo, hi] = a < b ? [a, b] : [b, a];
+    const range = keys.slice(lo, hi + 1);
+    setSelected((prev) => {
+      const next = new Set(prev);
+      range.forEach((k) => next.add(k));
+      return next;
+    });
+    lastSelectedRef.current = targetKey;
+  }, [keyFor, toggleOne]);
+
+  const handleSelectClick = useCallback((e: React.MouseEvent, ordered: Item[], item: Item) => {
+    const k = keyFor(item);
+    if (e.shiftKey) { e.preventDefault(); selectRange(ordered, k); return; }
+    if (e.ctrlKey || e.metaKey) { e.preventDefault(); toggleOne(k); return; }
+    // plain click when selection exists — Explorer: select only this item
+    e.preventDefault();
+    setSelected(new Set([k]));
+    lastSelectedRef.current = k;
+  }, [keyFor, selectRange, toggleOne]);
+
+  const selectAllVisible = useCallback((ordered: Item[]) => {
+    setSelected(new Set(ordered.map((it) => keyFor(it))));
+    lastSelectedRef.current = ordered.length ? keyFor(ordered[ordered.length - 1]) : null;
+  }, [keyFor]);
+
+  // Explorer-like keyboard — only when select mode is on (triggered via ⋮ → Select)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement | null)?.tagName?.toLowerCase();
+      const inInput = tag === "input" || tag === "textarea" || (e.target as HTMLElement | null)?.isContentEditable;
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a" && !inInput && selectMode) {
+        e.preventDefault();
+        if (combined.length) selectAllVisible(combined);
+      } else if (e.key === "Escape" && !openMenuId && !prompt && !confirm && !showDeviceDetails) {
+        if (selectMode) { e.preventDefault(); exitSelectMode(); }
+        else if (selected.size > 0) { e.preventDefault(); clearSelection(); }
+      } else if ((e.key === "Delete" || e.key === "Backspace") && selectMode && selected.size > 0 && !inInput) {
+        e.preventDefault();
+        const keys = Array.from(selected);
+        const label = keys.length === 1 ? "1 item" : `${keys.length} items`;
+        if (window.confirm(`Delete ${label}? This cannot be undone.`)) void runBulkDelete(keys);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [combined, selected, openMenuId, prompt, confirm, showDeviceDetails, selectAllVisible, clearSelection, selectMode, exitSelectMode]);
 
   const onUpload = async (picked: FileList | null) => {
     if (!picked || picked.length === 0) return;
@@ -261,12 +491,54 @@ export function DashboardPage() {
         toast.success(`File "${confirm.name}" deleted.`);
       }
       setConfirm(null);
+      // if deleted item was selected, prune it
+      setSelected((prev) => {
+        const k = `${confirm.kind}:${confirm.id}`;
+        if (!prev.has(k)) return prev;
+        const n = new Set(prev); n.delete(k); return n;
+      });
       await load();
     } catch (e) {
       toast.error(describeError(e));
     } finally {
       setBusy(false);
     }
+  };
+
+  const runBulkDelete = async (keys: string[]) => {
+    if (keys.length === 0) return;
+    const toDelete = keys.map((k) => {
+      const [kind, id] = k.split(":") as ["folder" | "file", string];
+      const found = [...folders, ...files].find((x) => x.id === id);
+      return { kind, id, name: (found as { name?: string })?.name ?? id };
+    });
+    setBusy(true);
+    try {
+      for (const it of toDelete) {
+        if (it.kind === "folder") await deleteFolder(it.id);
+        else await deleteFile(it.id);
+      }
+      toast.success(keys.length === 1 ? `Deleted "${toDelete[0].name}".` : `Deleted ${keys.length} items.`);
+      clearSelection();
+      await load();
+    } catch (e) {
+      toast.error(describeError(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const runBulkDownload = async (keys: string[]) => {
+    const fileKeys = keys.filter((k) => k.startsWith("file:"));
+    if (fileKeys.length === 0) { toast.error("No files selected."); return; }
+    let ok = 0;
+    for (const k of fileKeys) {
+      const id = k.slice(5);
+      const f = files.find((x) => x.id === id);
+      if (!f) continue;
+      try { await onDownload({ id, name: f.name }); ok++; } catch { /* onDownload already toasts */ }
+    }
+    if (ok > 1) toast.success(`Started ${ok} downloads.`);
   };
 
   const onDownload = async (item: { id: string; name: string }) => {
@@ -298,6 +570,16 @@ export function DashboardPage() {
 
   const askDelete = (item: Item) => setConfirm({ kind: item.kind, id: item.id, name: item.name });
 
+  const copyDeviceId = async () => {
+    if (!device) return;
+    try {
+      await navigator.clipboard.writeText(device);
+      toast.success("Device ID copied.");
+    } catch {
+      toast.error("Could not copy device ID.");
+    }
+  };
+
   const initials = (user?.fullName ?? user?.email ?? "?")
     .split(/\s+/)
     .map((s) => s[0])
@@ -307,79 +589,303 @@ export function DashboardPage() {
 
   const promptConfig = promptConfigFor(prompt, current.name);
 
-  const renderGrid = (list: Item[]) => (
-    <div className="grid">
-      {list.map((item) => (
-        <div className="card" key={`${item.kind}:${item.id}`}>
-          <div className="card-actions">
+  // ---- sync helpers — quiet by default: synced shows nothing (normal state shouldn't scream) ----
+  const syncDot = (status: SyncStatus) => {
+    if (status === "synced") return null;
+    const style: Record<SyncStatus, CSSProperties> = {
+      synced: { background: "var(--success)", boxShadow: "0 0 0 3px var(--success-soft)" },
+      pending: { background: "var(--warning)", boxShadow: "0 0 0 3px var(--warning-soft)" },
+      syncing: { background: "var(--brand)", boxShadow: "0 0 0 3px var(--brand-soft)" },
+      failed: { background: "var(--danger)", boxShadow: "0 0 0 3px var(--danger-soft)" },
+      offline: { background: "var(--text-faint)", boxShadow: "0 0 0 3px var(--surface-3)" },
+    };
+    const label: Record<SyncStatus, string> = {
+      synced: "Synced",
+      pending: "Pending",
+      syncing: "Syncing",
+      failed: "Failed",
+      offline: "Offline",
+    };
+    return (
+      <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: "0.72rem", fontWeight: 650, letterSpacing: "0.02em" }}>
+        <span aria-hidden="true" style={{ width: 8, height: 8, borderRadius: 999, flexShrink: 0, ...style[status] }} />
+        <span style={{ color: status === "offline" ? "var(--text-faint)" : status === "failed" ? "var(--danger)" : "var(--text-muted)" }}>{label[status]}</span>
+      </span>
+    );
+  };
+
+  const KebabMenu = ({ item }: { item: Item }) => {
+    const isOpen = openMenuId === item.id;
+    return (
+      <div data-kebab-root style={{ position: "relative" }}>
+        <button
+          type="button"
+          className="icon-btn"
+          aria-label={`More actions for ${item.name}`}
+          aria-haspopup="menu"
+          aria-expanded={isOpen}
+          title="More actions"
+          onClick={(e) => {
+            e.stopPropagation();
+            setOpenMenuId(isOpen ? null : item.id);
+          }}
+          style={{
+            opacity: 1,
+            background: isOpen ? "var(--surface-3)" : undefined,
+            borderColor: isOpen ? "var(--border-strong)" : undefined,
+          }}
+        >
+          <MoreIcon size={16} />
+        </button>
+        {isOpen && (
+          <div
+            role="menu"
+            aria-label={`Actions for ${item.name}`}
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              position: "absolute",
+              top: "calc(100% + 6px)",
+              right: 0,
+              minWidth: 168,
+              background: "var(--surface)",
+              border: "1px solid var(--border)",
+              borderRadius: "var(--radius)",
+              boxShadow: "var(--shadow-lg)",
+              padding: 6,
+              zIndex: 40,
+              display: "flex",
+              flexDirection: "column",
+              gap: 2,
+            }}
+          >
+            <button
+              type="button"
+              role="menuitem"
+              className="menu-row"
+              style={{ fontSize: "0.86rem" }}
+              onClick={() => {
+                setOpenMenuId(null);
+                const k = keyFor(item);
+                if (!selectMode) enterSelectMode(k);
+                else toggleOne(k);
+                if (!selectMode) setTimeout(() => toast.success("Selection mode on — pick more files, then use the bar above."), 0);
+              }}
+            >
+              <span className="menu-ico"><CheckIcon size={16} /></span>
+              <span className="menu-text">{selectMode && selected.has(keyFor(item)) ? "Deselect" : "Select"}</span>
+            </button>
+            <div style={{ height: 1, background: "var(--border)", margin: "4px 2px" }} aria-hidden="true" />
             {item.kind === "file" && (
-              <button className="icon-btn" title="Download" aria-label={`Download ${item.name}`} onClick={() => void onDownload(item)}>
-                <DownloadIcon size={15} />
+              <button
+                type="button"
+                role="menuitem"
+                className="menu-row"
+                style={{ fontSize: "0.86rem" }}
+                onClick={() => {
+                  setOpenMenuId(null);
+                  void onDownload(item);
+                }}
+              >
+                <span className="menu-ico"><DownloadIcon size={16} /></span>
+                <span className="menu-text">Download</span>
               </button>
             )}
-            <button className="icon-btn" title="Rename" aria-label={`Rename ${item.name}`} onClick={() => renameItem(item)}>
-              <PencilIcon size={15} />
+            <button
+              type="button"
+              role="menuitem"
+              className="menu-row"
+              style={{ fontSize: "0.86rem" }}
+              onClick={() => {
+                setOpenMenuId(null);
+                renameItem(item);
+              }}
+            >
+              <span className="menu-ico"><PencilIcon size={16} /></span>
+              <span className="menu-text">Rename</span>
             </button>
-            <button className="icon-btn danger" title="Delete" aria-label={`Delete ${item.name}`} onClick={() => askDelete(item)}>
-              <TrashIcon size={15} />
+            <button
+              type="button"
+              role="menuitem"
+              className="menu-row"
+              style={{ fontSize: "0.86rem", color: "var(--danger)" }}
+              onClick={() => {
+                setOpenMenuId(null);
+                askDelete(item);
+              }}
+            >
+              <span className="menu-ico" style={{ color: "var(--danger)" }}><TrashIcon size={16} /></span>
+              <span className="menu-text">Delete</span>
             </button>
           </div>
-          <div
-            className="card-main"
-            role="button"
-            tabIndex={0}
-            onClick={() => openItem(item)}
-            onKeyDown={(e) => e.key === "Enter" && openItem(item)}
-          >
-            <span className={`card-icon ${item.kind}`}>
-              {item.kind === "folder" ? <FolderIcon size={21} /> : <FileIcon size={21} />}
-            </span>
-            <div style={{ minWidth: 0 }}>
-              <div className="card-name">{item.name}</div>
-              <div className="card-meta">{item.kind === "folder" ? "Folder" : formatSize(item.size)}</div>
+        )}
+      </div>
+    );
+  };
+
+  // quiet by default — only show Pending/Syncing/Failed/Offline; Synced is normal, no dot
+  const cardMetaLine = (item: Item) => {
+    const status = deriveSyncStatus(item, !online, pendingIds);
+    const dot = syncDot(status);
+    if (item.kind === "folder") {
+      return dot ? (
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <span>Folder</span>
+          <span style={{ opacity: 0.6 }}>·</span>
+          {dot}
+        </span>
+      ) : (
+        <span>Folder</span>
+      );
+    }
+    return dot ? (
+      <span style={{ display: "inline-flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <span>{formatSize(item.size)}</span>
+        <span style={{ opacity: 0.6 }}>·</span>
+        {dot}
+      </span>
+    ) : (
+      <span>{formatSize(item.size)}</span>
+    );
+  };
+
+  const renderGrid = (list: Item[]) => (
+    <div className="grid" data-select-mode={selectMode ? "true" : undefined}>
+      {list.map((item) => {
+        const k = keyFor(item);
+        const checked = selectMode && isSelected(k);
+        const status = deriveSyncStatus(item, !online, pendingIds);
+        const kind = item.kind === "file" ? getFileKind(item.contentType, item.name) : "file" as const;
+        const iconStyle = item.kind === "folder" ? undefined : fileKindStyle(kind);
+        const showStatus = status !== "synced";
+        return (
+          <div className={`card${checked ? " is-selected" : ""}`} key={k} data-selected={checked ? "true" : undefined} aria-selected={checked} style={openMenuId === k ? { zIndex: 5 } : undefined}>
+            {selectMode && (
+              <label className="card-check" onClick={(e) => e.stopPropagation()} title={checked ? "Deselect" : "Select"}>
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={(e) => {
+                    void e;
+                    if ((e.nativeEvent as unknown as { shiftKey?: boolean }).shiftKey) selectRange(list, k);
+                    else toggleOne(k);
+                  }}
+                  onClick={(e) => {
+                    const me = e as unknown as React.MouseEvent<HTMLInputElement>;
+                    if (me.shiftKey) { e.preventDefault(); selectRange(list, k); }
+                  }}
+                  aria-label={`Select ${item.name}`}
+                />
+                <span aria-hidden="true" />
+              </label>
+            )}
+            <div className="card-actions" style={{ opacity: 1, display: "flex", gap: 4, alignItems: "center" }}>
+              {showStatus && (
+                <span
+                  aria-hidden="true"
+                  title={status}
+                  style={{
+                    width: 8, height: 8, borderRadius: 999, marginRight: 4, flexShrink: 0,
+                    background: status === "offline" ? "var(--text-faint)" : status === "failed" ? "var(--danger)" : status === "pending" ? "var(--warning)" : "var(--brand)",
+                    boxShadow: status === "failed" ? "0 0 0 3px var(--danger-soft)" : status === "offline" ? "0 0 0 3px var(--surface-3)" : "0 0 0 3px var(--warning-soft)",
+                  }}
+                />
+              )}
+              <KebabMenu item={item} />
+            </div>
+            <div
+              className="card-main"
+              role="button"
+              tabIndex={0}
+              title={item.name}
+              aria-label={`${item.kind === "folder" ? "Open folder" : "Download file"} ${item.name}${showStatus ? `, ${status}` : ""}`}
+              onClick={(e) => {
+                if (!selectMode) { openItem(item); return; }
+                // select mode: Explorer-like selection on card
+                if (e.ctrlKey || e.metaKey || e.shiftKey) { handleSelectClick(e, list, item); return; }
+                handleSelectClick({ ...e, ctrlKey: false, metaKey: false, shiftKey: false, preventDefault() { e.preventDefault(); } } as unknown as React.MouseEvent, list, item);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openItem(item); }
+              }}
+            >
+              <span className={`card-icon ${item.kind}`} style={iconStyle as CSSProperties} aria-hidden="true">
+                {item.kind === "folder" ? <FolderIcon size={21} /> : <FileIcon size={21} />}
+              </span>
+              <div style={{ minWidth: 0 }}>
+                <div className="card-name" title={item.name}>{item.name}</div>
+                <div className="card-meta">{cardMetaLine(item)}</div>
+              </div>
             </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 
   const renderList = (list: Item[]) => (
-    <div className="list">
-      {list.map((item) => (
-        <div className="list-row" key={`${item.kind}:${item.id}`}>
-          <span className={`card-icon ${item.kind}`}>
-            {item.kind === "folder" ? <FolderIcon size={18} /> : <FileIcon size={18} />}
-          </span>
-          <button className="grow list-open" onClick={() => openItem(item)}>
-            <span className="card-name">{item.name}</span>
-            <span className="card-meta">
-              {item.kind === "folder" ? "Folder" : `${formatSize(item.size)} · ${item.contentType}`}
-            </span>
-          </button>
-          <div className="list-actions">
-            {item.kind === "file" && (
-              <button className="icon-btn" title="Download" aria-label={`Download ${item.name}`} onClick={() => void onDownload(item)}>
-                <DownloadIcon size={15} />
-              </button>
+    <div className="list" role="list" data-select-mode={selectMode ? "true" : undefined}>
+      {list.map((item) => {
+        const k = keyFor(item);
+        const checked = selectMode && isSelected(k);
+        const status = deriveSyncStatus(item, !online, pendingIds);
+        const kind = item.kind === "file" ? getFileKind(item.contentType, item.name) : "file" as const;
+        const iconStyle = item.kind === "folder" ? undefined : fileKindStyle(kind);
+        const showStatus = status !== "synced";
+        return (
+          <div className={`list-row${checked ? " is-selected" : ""}`} key={k} role="listitem" data-selected={checked ? "true" : undefined} aria-selected={checked} style={openMenuId === k ? { zIndex: 5, position: "relative" } : undefined}>
+            {selectMode && (
+              <label className="list-check" onClick={(e) => e.stopPropagation()} title={checked ? "Deselect" : "Select"}>
+                <input type="checkbox" checked={checked} onChange={() => toggleOne(k)} onClick={(e) => { if ((e as unknown as React.MouseEvent).shiftKey) { e.preventDefault(); selectRange(list, k); } }} aria-label={`Select ${item.name}`} />
+                <span aria-hidden="true" />
+              </label>
             )}
-            <button className="icon-btn" title="Rename" aria-label={`Rename ${item.name}`} onClick={() => renameItem(item)}>
-              <PencilIcon size={15} />
+            <span className={`card-icon ${item.kind}`} style={iconStyle as CSSProperties} aria-hidden="true">
+              {item.kind === "folder" ? <FolderIcon size={18} /> : <FileIcon size={18} />}
+            </span>
+            <button
+              className="grow list-open"
+              onClick={(e) => {
+                if (!selectMode) { openItem(item); return; }
+                handleSelectClick(e as unknown as React.MouseEvent, list, item);
+              }}
+              title={item.name}
+              aria-label={`${item.kind === "folder" ? "Open" : "Download"} ${item.name}`}
+            >
+              <span className="card-name" title={item.name}>{item.name}</span>
+              <span className="card-meta">
+                {item.kind === "folder" ? (
+                  showStatus ? <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>Folder <span style={{ opacity: 0.6 }}>·</span> {syncDot(status)}</span> : <span>Folder</span>
+                ) : (
+                  showStatus ? <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>{formatSize(item.size)} · {item.contentType || kind} <span style={{ opacity: 0.6 }}>·</span> {syncDot(status)}</span>
+                  : <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>{formatSize(item.size)} · {item.contentType || kind}</span>
+                )}
+              </span>
             </button>
-            <button className="icon-btn danger" title="Delete" aria-label={`Delete ${item.name}`} onClick={() => askDelete(item)}>
-              <TrashIcon size={15} />
-            </button>
+            <div className="list-actions" style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              {showStatus && (
+                <span
+                  aria-hidden="true"
+                  title={status}
+                  style={{
+                    width: 8, height: 8, borderRadius: 999, flexShrink: 0, marginRight: 2,
+                    background: status === "failed" ? "var(--danger)" : status === "offline" ? "var(--text-faint)" : "var(--warning)",
+                    boxShadow: status === "failed" ? "0 0 0 3px var(--danger-soft)" : "0 0 0 3px var(--surface-3)",
+                  }}
+                />
+              )}
+              <KebabMenu item={item} />
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 
   const renderItems = (list: Item[]) => (view === "grid" ? renderGrid(list) : renderList(list));
 
   const showEmpty = (icon: ReactNode, title: string, hint: string, action?: ReactNode) => (
-    <div className="empty">
-      <span className="empty-icon">{icon}</span>
+    <div className="empty" role="status" aria-live="polite">
+      <span className="empty-icon" aria-hidden="true">{icon}</span>
       <h4>{title}</h4>
       <p>{hint}</p>
       {action}
@@ -397,16 +903,85 @@ export function DashboardPage() {
     </button>
   );
 
+  const clearSearchBtn = (
+    <button type="button" className="btn btn-outline btn-sm" onClick={() => setQuery("")}>
+      Clear search
+    </button>
+  );
+
+  const hasQuery = q.length > 0;
+  const noResults = !loading && hasQuery && combined.length === 0;
+
+  // selection bar — only renders when select mode is active (triggered via ⋮ → Select)
+  const selectionBar = (ordered: Item[]) => {
+    if (!selectMode) return null;
+    const count = selected.size;
+    const allSelected = ordered.length > 0 && ordered.every((it) => selected.has(keyFor(it)));
+    const someSelected = ordered.some((it) => selected.has(keyFor(it)));
+    const selectedKeys = Array.from(selected);
+    const hasFileSelection = selectedKeys.some((k) => k.startsWith("file:"));
+    if (ordered.length === 0) return null;
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+        <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: "0.84rem", fontWeight: 600, color: "var(--text-muted)", cursor: "pointer" }}>
+          <input
+            type="checkbox"
+            checked={allSelected}
+            ref={(el) => { if (el) el.indeterminate = !allSelected && someSelected; }}
+            onChange={() => {
+              if (allSelected) {
+                const next = new Set(selected);
+                ordered.forEach((it) => next.delete(keyFor(it)));
+                setSelected(next);
+              } else {
+                selectAllVisible(ordered);
+              }
+            }}
+            aria-label="Select all visible"
+            style={{ accentColor: "var(--brand)" }}
+          />
+          Select all
+        </label>
+        {count > 0 ? (
+          <>
+            <span className="count-pill" aria-live="polite">{count} selected</span>
+            <span style={{ display: "inline-flex", gap: 6, marginLeft: 4 }}>
+              <button type="button" className="btn btn-outline btn-sm" onClick={() => void runBulkDownload(selectedKeys)} disabled={!hasFileSelection || busy} title={hasFileSelection ? "Download selected files" : "Select at least one file"}>
+                <DownloadIcon size={14} /> Download
+              </button>
+              <button type="button" className="btn btn-sm" style={{ background: "var(--danger)", color: "#fff", border: "1px solid var(--danger)" }} onClick={() => {
+                const names = selectedKeys.slice(0, 3).map((k) => {
+                  const id = k.split(":")[1];
+                  const m = [...folders, ...files].find((x) => x.id === id);
+                  return (m as { name?: string } | undefined)?.name ?? id;
+                }).join(", ");
+                const label = selectedKeys.length === 1 ? `"${names}"` : `${selectedKeys.length} items${names ? ` (${names}${selectedKeys.length > 3 ? "…" : ""})` : ""}`;
+                if (window.confirm(`Delete ${label}? This cannot be undone.`)) void runBulkDelete(selectedKeys);
+              }} disabled={busy}>
+                <TrashIcon size={14} /> Delete
+              </button>
+              <button type="button" className="btn btn-ghost btn-sm" onClick={clearSelection}>Clear</button>
+            </span>
+            <span className="faint" style={{ fontSize: "0.78rem" }}>Tip: Ctrl/Cmd+click toggle · Shift+click range</span>
+          </>
+        ) : (
+          <span className="faint" style={{ fontSize: "0.78rem" }}>Pick items — Ctrl/Cmd toggles, Shift for range</span>
+        )}
+        <button type="button" className="btn btn-ghost btn-sm" onClick={exitSelectMode} style={{ marginLeft: "auto" }}>Exit selection</button>
+      </div>
+    );
+  };
+
   return (
     <div className="app">
-      <aside className="sidebar">
+      <aside className="sidebar" aria-label="Sidebar">
         <div className="brand">
-          <span className="logo-badge">
+          <span className="logo-badge" aria-hidden="true">
             <CloudIcon size={20} />
           </span>
           <span className="brand-name">NexSync</span>
         </div>
-        <nav className="side-nav">
+        <nav className="side-nav" aria-label="Primary">
           <button
             className={`nav-item${!isDeviceFiltering ? " active" : ""}`}
             onClick={() => setDeviceFilter(null)}
@@ -423,28 +998,55 @@ export function DashboardPage() {
           disabled={!device}
           title={device ? (isDeviceFiltering ? "Show all — clear device filter" : "Show only files from this browser device") : undefined}
           aria-pressed={isDeviceFiltering}
+          aria-label={isDeviceFiltering ? "Device filter active, click to clear" : "Filter to this browser device"}
         >
           <div className="device-row">
-            <span className="device-dot" />
+            <span className="device-dot" aria-hidden="true" />
             <span style={{ fontWeight: 650, fontSize: "0.86rem" }}>
-              {isDeviceFiltering ? "Device filter on" : "Browser device"}
+              This browser
             </span>
+            {device && (
+              <span
+                className="count-pill"
+                title={device}
+                onClick={(e) => { e.stopPropagation(); void copyDeviceId(); }}
+                style={{ cursor: "copy", marginLeft: "auto" }}
+                aria-label={`Device ID ${device}, click to copy`}
+              >
+                Active · {device.slice(0, 8)}
+              </span>
+            )}
           </div>
           <span className="faint" style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-            <DeviceIcon size={14} />
-            {device ? (isDeviceFiltering ? "Tap to clear · " + device.slice(0, 12) + "…" : device.slice(0, 12) + "…") : "not enrolled"}
+            <DeviceIcon size={14} aria-hidden="true" />
+            {device ? (
+              <>
+                <span title={device}>{device.slice(0, 12)}…</span>
+                <button
+                  type="button"
+                  className="link"
+                  style={{ fontSize: "0.78rem", marginLeft: 6 }}
+                  onClick={(e) => { e.stopPropagation(); setShowDeviceDetails(true); }}
+                  aria-label="Show device details"
+                >
+                  Details
+                </button>
+              </>
+            ) : (
+              "not enrolled"
+            )}
           </span>
         </button>
         <div className="sidebar-spacer" />
-        <button className="nav-item" onClick={toggleTheme}>
+        <button className="nav-item" onClick={toggleTheme} aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}>
           {theme === "dark" ? <SunIcon size={18} /> : <MoonIcon size={18} />}
           {theme === "dark" ? "Light mode" : "Dark mode"}
         </button>
         <div className="user-card">
-          <span className="avatar">{initials}</span>
+          <span className="avatar" aria-hidden="true">{initials}</span>
           <div className="user-meta">
             <div className="name">{user?.fullName ?? "Signed in"}</div>
-            <div className="email">{user?.email}</div>
+            <div className="email" title={user?.email}>{user?.email}</div>
           </div>
           <button className="icon-btn" title="Sign out" aria-label="Sign out" onClick={() => void logout()}>
             <LogoutIcon size={17} />
@@ -454,7 +1056,7 @@ export function DashboardPage() {
 
       <div className="main">
         <div className="mobile-bar">
-          <span className="logo-badge" style={{ width: 32, height: 32, borderRadius: 9 }}>
+          <span className="logo-badge" style={{ width: 32, height: 32, borderRadius: 9 }} aria-hidden="true">
             <CloudIcon size={17} />
           </span>
           <strong style={{ flex: 1 }}>NexSync</strong>
@@ -470,10 +1072,10 @@ export function DashboardPage() {
           <div className="topbar-title">
             <h1>{current.name === "Root" ? "All files" : current.name}</h1>
           </div>
-          <button className="btn btn-outline btn-sm" onClick={() => fileInput.current?.click()}>
+          <button className="btn btn-outline btn-sm" onClick={() => fileInput.current?.click()} aria-label="Upload files">
             <UploadIcon size={16} /> Upload
           </button>
-          <button className="btn btn-primary btn-sm" onClick={() => setPrompt({ mode: "newFolder" })}>
+          <button className="btn btn-primary btn-sm" onClick={() => setPrompt({ mode: "newFolder" })} aria-label="Create new folder">
             <FolderPlusIcon size={16} /> New folder
           </button>
           <input
@@ -485,6 +1087,8 @@ export function DashboardPage() {
               void onUpload(e.target.files);
               e.target.value = "";
             }}
+            aria-hidden="true"
+            tabIndex={-1}
           />
         </header>
 
@@ -493,7 +1097,7 @@ export function DashboardPage() {
             {crumbs.map((c, i) => (
               <span key={c.id ?? "root"} style={{ display: "inline-flex", alignItems: "center" }}>
                 {i > 0 && (
-                  <span className="crumb-sep">
+                  <span className="crumb-sep" aria-hidden="true">
                     <ChevronRight size={15} />
                   </span>
                 )}
@@ -501,6 +1105,8 @@ export function DashboardPage() {
                   className={`crumb${i === crumbs.length - 1 ? " current" : ""}`}
                   onClick={() => goCrumb(i)}
                   disabled={i === crumbs.length - 1}
+                  aria-current={i === crumbs.length - 1 ? "page" : undefined}
+                  title={i === crumbs.length - 1 ? `Current folder: ${c.name}` : `Go to ${c.name}`}
                 >
                   {c.name}
                 </button>
@@ -508,15 +1114,90 @@ export function DashboardPage() {
             ))}
           </nav>
 
+          {/* P0 SyncStatusBar: online/offline, last sync, pending, retry */}
+          <div
+            role="status"
+            aria-live="polite"
+            aria-label="Sync status"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              flexWrap: "wrap",
+              padding: "0.65rem 0.9rem",
+              borderRadius: "var(--radius)",
+              border: `1px solid ${!online ? "color-mix(in srgb, var(--warning) 26%, var(--border))" : loadError ? "color-mix(in srgb, var(--danger) 22%, var(--border))" : "var(--border)"}`,
+              background: !online ? "var(--warning-soft)" : loadError ? "var(--danger-soft)" : "var(--surface)",
+              marginBottom: "1rem",
+              fontSize: "0.85rem",
+              boxShadow: "var(--shadow-xs)",
+            }}
+          >
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 8, fontWeight: 600 }}>
+              {!online ? (
+                <>
+                  <span style={{ width: 8, height: 8, borderRadius: 999, background: "var(--warning)", boxShadow: "0 0 0 3px color-mix(in srgb, var(--warning) 18%, transparent)", flexShrink: 0 }} aria-hidden="true" />
+                  <AlertIcon size={15} aria-hidden="true" />
+                  Offline
+                </>
+              ) : loadError ? (
+                <>
+                  <span style={{ width: 8, height: 8, borderRadius: 999, background: "var(--danger)", boxShadow: "0 0 0 3px var(--danger-soft)", flexShrink: 0 }} aria-hidden="true" />
+                  <AlertIcon size={15} aria-hidden="true" />
+                  Sync failed
+                </>
+              ) : loading ? (
+                <>
+                  <span className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} aria-hidden="true" />
+                  Syncing…
+                </>
+              ) : pendingCount > 0 ? (
+                <>
+                  <span style={{ width: 8, height: 8, borderRadius: 999, background: "var(--warning)", boxShadow: "0 0 0 3px var(--warning-soft)", flexShrink: 0 }} aria-hidden="true" />
+                  {pendingCount} pending
+                </>
+              ) : (
+                <>
+                  <span style={{ width: 8, height: 8, borderRadius: 999, background: "var(--success)", boxShadow: "0 0 0 3px var(--success-soft)", flexShrink: 0 }} aria-hidden="true" />
+                  <CheckIcon size={15} aria-hidden="true" />
+                  All synced
+                </>
+              )}
+            </span>
+            <span className="faint" style={{ fontSize: "0.82rem" }}>
+              {!online ? "— changes will sync when back online" : loadError ? `— ${loadError}` : `· Last sync ${formatRelativeSync(lastSyncAt)}`}
+            </span>
+            <span style={{ marginLeft: "auto", display: "inline-flex", gap: 8, alignItems: "center" }}>
+              <span
+                title={online ? "Online" : "Offline"}
+                aria-label={online ? "Online" : "Offline"}
+                style={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: 999,
+                  background: online ? "var(--success)" : "var(--text-faint)",
+                  boxShadow: online ? "0 0 0 3px var(--success-soft)" : "0 0 0 3px var(--surface-3)",
+                  display: "inline-block",
+                  flexShrink: 0,
+                }}
+              />
+              <span className="faint" style={{ fontSize: "0.78rem" }}>{online ? "Online" : "Offline"}</span>
+              <button type="button" className="btn btn-ghost btn-sm" onClick={() => void load()} aria-label="Retry sync" style={{ padding: "0.3rem 0.6rem" }}>
+                Retry
+              </button>
+            </span>
+          </div>
+
           <div className="toolbar">
             <div className="search grow">
-              <SearchIcon size={16} />
+              <SearchIcon size={16} aria-hidden="true" />
               <input
                 className="input"
                 placeholder="Search in this folder…"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                aria-label="Search"
+                aria-label="Search in this folder"
+                type="search"
               />
             </div>
             <SortMenu sort={sort} onChange={setSort} />
@@ -525,6 +1206,7 @@ export function DashboardPage() {
                 className={view === "grid" ? "active" : ""}
                 onClick={() => setView("grid")}
                 aria-label="Grid view"
+                aria-pressed={view === "grid"}
                 title="Grid view"
               >
                 <GridIcon size={17} />
@@ -533,6 +1215,7 @@ export function DashboardPage() {
                 className={view === "list" ? "active" : ""}
                 onClick={() => setView("list")}
                 aria-label="List view"
+                aria-pressed={view === "list"}
                 title="List view"
               >
                 <ListIcon size={17} />
@@ -541,13 +1224,13 @@ export function DashboardPage() {
           </div>
 
           {isDeviceFiltering && !loading && (
-            <div className="filter-banner">
-              <DeviceIcon size={16} />
+            <div className="filter-banner" role="status" aria-live="polite">
+              <DeviceIcon size={16} aria-hidden="true" />
               <span>
                 Only items from this device
                 <strong> — {device!.slice(0, 8)}…</strong>
               </span>
-              <span className="count-pill">
+              <span className="count-pill" aria-label={`${sortedFolders.length + sortedFiles.length} items shown`}>
                 {sortedFolders.length + sortedFiles.length} shown
               </span>
               <button
@@ -562,10 +1245,10 @@ export function DashboardPage() {
           )}
 
           {uploadPct !== null && (
-            <div className="upload-banner">
-              <UploadIcon size={18} />
+            <div className="upload-banner" role="status" aria-live="polite" aria-label={`Uploading ${uploadPct} percent`}>
+              <UploadIcon size={18} aria-hidden="true" />
               <span style={{ fontSize: "0.88rem", fontWeight: 600 }}>Uploading…</span>
-              <div className="progress">
+              <div className="progress" aria-hidden="true">
                 <span style={{ width: `${uploadPct}%` }} />
               </div>
               <span className="faint">{uploadPct}%</span>
@@ -573,44 +1256,61 @@ export function DashboardPage() {
           )}
 
           {loading ? (
-            <div className="skeleton-grid">
+            <div className="skeleton-grid" aria-busy="true" aria-label="Loading files">
               {Array.from({ length: 6 }).map((_, i) => (
                 <div className="skeleton" key={i} />
               ))}
             </div>
+          ) : noResults ? (
+            showEmpty(
+              <SearchIcon size={28} />,
+              `No matches for "${query.trim()}"`,
+              `No files or folders match your search in "${current.name}". Try a different term or clear the search.`,
+              clearSearchBtn,
+            )
           ) : sort.foldersFirst ? (
             <>
-              <section>
+              <section aria-label="Folders">
                 <div className="section-head">
                   <h3>Folders</h3>
-                  <span className="count-pill">{sortedFolders.length}</span>
+                  <span className="count-pill" aria-label={`${sortedFolders.length} folders`}>{sortedFolders.length}</span>
                 </div>
                 {sortedFolders.length === 0
                   ? showEmpty(
                       <FolderIcon size={28} />,
-                      q ? "No matching folders" : "No folders yet",
-                      q ? "Try a different search term." : "Create a folder to organise your files.",
-                      !q ? newFolderBtn : undefined,
+                      hasQuery ? `No matching folders for "${query.trim()}"` : "No folders yet",
+                      hasQuery ? "Try a different search term or clear the filter." : "Create a folder to organise your files — it will sync to all your devices.",
+                      hasQuery ? clearSearchBtn : newFolderBtn,
                     )
-                  : renderItems(sortedFolders)}
+                  : (
+                    <>
+                      {selectionBar(sortedFolders)}
+                      {renderItems(sortedFolders)}
+                    </>
+                  )}
               </section>
-              <section>
+              <section aria-label="Files">
                 <div className="section-head">
                   <h3>Files</h3>
-                  <span className="count-pill">{sortedFiles.length}</span>
+                  <span className="count-pill" aria-label={`${sortedFiles.length} files`}>{sortedFiles.length}</span>
                 </div>
                 {sortedFiles.length === 0
                   ? showEmpty(
                       <FileIcon size={28} />,
-                      q ? "No matching files" : "No files yet",
-                      q ? "Try a different search term." : "Upload files to see them sync everywhere.",
-                      !q ? uploadBtn : undefined,
+                      hasQuery ? `No matching files for "${query.trim()}"` : "No files yet",
+                      hasQuery ? "Try a different search term or clear the filter." : "Upload files to see them sync everywhere. Drag and drop also works.",
+                      hasQuery ? clearSearchBtn : uploadBtn,
                     )
-                  : renderItems(sortedFiles)}
+                  : (
+                    <>
+                      {selectionBar(sortedFiles)}
+                      {renderItems(sortedFiles)}
+                    </>
+                  )}
               </section>
             </>
           ) : (
-            <section>
+            <section aria-label="All items">
               <div className="section-head">
                 <h3>All items</h3>
                 <span className="count-pill">{combined.length}</span>
@@ -618,11 +1318,16 @@ export function DashboardPage() {
               {combined.length === 0
                 ? showEmpty(
                     <SearchIcon size={28} />,
-                    q ? "No matches" : "This folder is empty",
-                    q ? "Try a different search term." : "Create a folder or upload files to get started.",
-                    !q ? newFolderBtn : undefined,
+                    hasQuery ? `No matches for "${query.trim()}"` : "This folder is empty",
+                    hasQuery ? "Try a different search term or clear the search." : "Create a folder or upload files to get started — everything syncs automatically.",
+                    hasQuery ? clearSearchBtn : newFolderBtn,
                   )
-                : renderItems(combined)}
+                : (
+                  <>
+                    {selectionBar(combined)}
+                    {renderItems(combined)}
+                  </>
+                )}
             </section>
           )}
         </div>
@@ -661,6 +1366,32 @@ export function DashboardPage() {
         onCancel={() => setConfirm(null)}
         onConfirm={() => void runConfirm()}
       />
+
+      {/* Device details — friendly display with copy affordance, not raw UUID slice alone */}
+      {showDeviceDetails && device && (
+        <div className="modal-overlay" role="dialog" aria-modal="true" aria-label="Device details" onMouseDown={() => setShowDeviceDetails(false)}>
+          <div className="modal" onMouseDown={(e) => e.stopPropagation()} style={{ maxWidth: 460 }}>
+            <div className="modal-head">
+              <div className="modal-ico info" aria-hidden="true"><DeviceIcon size={20} /></div>
+              <div>
+                <h2>This browser</h2>
+                <p className="modal-desc">Active device for this browser. Files created here carry this ID.</p>
+              </div>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                <span className="count-pill" style={{ background: "var(--success-soft)", color: "var(--success)", border: "1px solid color-mix(in srgb, var(--success) 18%, transparent)" }}>Active</span>
+                <code style={{ fontFamily: "var(--font-mono)", fontSize: "0.82rem", background: "var(--surface-3)", padding: "4px 8px", borderRadius: "var(--radius-xs)", wordBreak: "break-all" }}>{device}</code>
+              </div>
+              <p className="faint" style={{ fontSize: "0.82rem" }}>Short ID: <strong style={{ color: "var(--text)" }}>{device.slice(0, 8)}</strong> · Full ID shown above</p>
+            </div>
+            <div className="modal-actions">
+              <button className="btn btn-ghost" onClick={() => setShowDeviceDetails(false)}>Close</button>
+              <button className="btn btn-primary" onClick={() => void copyDeviceId()}>Copy ID</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

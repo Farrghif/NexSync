@@ -13,44 +13,94 @@
         <ToolbarItem Text="Account" Clicked="OnAccountClicked"/>
     </ContentPage.ToolbarItems>
 
-    <Grid RowDefinitions="Auto,Auto,Auto,*" Padding="14,10">
+    <Grid RowDefinitions="Auto,Auto,Auto,Auto,*" Padding="16,12" RowSpacing="0">
 
-        <!-- Breadcrumb Bar -->
-        <HorizontalStackLayout Grid.Row="0" Spacing="6" Margin="0,0,0,10">
-            <Button x:Name="BackBtn" Text="← Back" BackgroundColor="Transparent" TextColor="#5B5BD6"
-                    FontAttributes="Bold" Padding="0" Clicked="OnBackClicked" IsVisible="False"/>
-            <Label x:Name="CurrentPathLabel" Text="Root" FontSize="16" FontAttributes="Bold"
-                   TextColor="{AppThemeBinding Light=#14161D, Dark=#F2F3F8}" VerticalOptions="Center"/>
-        </HorizontalStackLayout>
-
-        <!-- Search Bar -->
-        <SearchBar Grid.Row="1" x:Name="SearchBox" Placeholder="Search files &amp; folders..."
-                   TextChanged="OnSearchTextChanged" Margin="0,0,0,8"/>
-
-        <!-- Device Filter Bar (Toggle Button) -->
-        <Frame Grid.Row="2" x:Name="DeviceFilterFrame" BackgroundColor="{AppThemeBinding Light=#EEF0FF, Dark=#21223A}"
-               BorderColor="#5B5BD6" CornerRadius="10" Padding="12,8" Margin="0,0,0,10">
-            <Grid ColumnDefinitions="Auto,*,Auto">
-                <Label Grid.Column="0" Text="📱" FontSize="16" VerticalOptions="Center" Margin="0,0,8,0"/>
-                <VerticalStackLayout Grid.Column="1" VerticalOptions="Center">
-                    <Label x:Name="DeviceFilterTitleLabel" Text="Filter: This Device" FontSize="12" FontAttributes="Bold" TextColor="#5B5BD6"/>
-                    <Label x:Name="DeviceFilterSubtitleLabel" Text="Tap to toggle filter" FontSize="11" TextColor="#8B90A0"/>
-                </VerticalStackLayout>
-                <Button Grid.Column="2" x:Name="DeviceFilterToggleBtn" Text="All Files" FontSize="11"
-                        BackgroundColor="#5B5BD6" TextColor="White" CornerRadius="8" Padding="10,0" HeightRequest="32"
-                        Clicked="OnDeviceFilterToggleClicked"/>
-            </Grid>
+        <!-- 0 — Sync Status Bar -->
+        <Frame Grid.Row="0" CornerRadius="10" HasShadow="False" Padding="12,8" Margin="0,0,0,10"
+               BackgroundColor="{AppThemeBinding Light=#FFFFFF, Dark=#14161F}"
+               BorderColor="{AppThemeBinding Light=#E6E8EF, Dark=#262A38}">
+            <HorizontalStackLayout Spacing="8" VerticalOptions="Center">
+                <Border x:Name="SyncStatusDot" WidthRequest="8" HeightRequest="8" StrokeThickness="0" BackgroundColor="#1DB954" VerticalOptions="Center">
+                    <Border.StrokeShape><RoundRectangle CornerRadius="4"/></Border.StrokeShape>
+                </Border>
+                <Label x:Name="SyncStatusLabel" Text="All synced" FontSize="12" FontAttributes="Bold"
+                       TextColor="{AppThemeBinding Light=#14161D, Dark=#F2F3F8}" VerticalOptions="Center"/>
+                <Label Text="·" FontSize="12" TextColor="#8B90A0" VerticalOptions="Center"/>
+                <Label x:Name="SyncStatusDetailLabel" Text="Up to date" FontSize="11" TextColor="#8B90A0" VerticalOptions="Center" LineBreakMode="TailTruncation"/>
+            </HorizontalStackLayout>
         </Frame>
 
-        <!-- Refresh View with Collection -->
-        <RefreshView Grid.Row="3" x:Name="Refresher" Refreshing="OnRefreshing" RefreshColor="#5B5BD6">
+        <!-- 1 — Breadcrumb (pill style) -->
+        <ScrollView Grid.Row="1" Orientation="Horizontal" HorizontalScrollBarVisibility="Never" Margin="0,0,0,10">
+            <HorizontalStackLayout Spacing="8" VerticalOptions="Center">
+                <Button x:Name="BackBtn" Text="‹  Back" FontSize="12" FontAttributes="Bold"
+                        BackgroundColor="{AppThemeBinding Light=#FFFFFF, Dark=#14161F}"
+                        TextColor="#5B5BD6"
+                        BorderColor="{AppThemeBinding Light=#E6E8EF, Dark=#262A38}" BorderWidth="1"
+                        CornerRadius="20" Padding="14,6" HeightRequest="30" IsVisible="False"
+                        Clicked="OnBackClicked"/>
+                <Border StrokeThickness="0" BackgroundColor="#5B5BD6" Padding="14,6" VerticalOptions="Center">
+                    <Border.StrokeShape><RoundRectangle CornerRadius="20"/></Border.StrokeShape>
+                    <Label x:Name="CurrentPathLabel" Text="Root" FontSize="12" FontAttributes="Bold" TextColor="White" VerticalOptions="Center"/>
+                </Border>
+            </HorizontalStackLayout>
+        </ScrollView>
+
+        <!-- 2 — Search -->
+        <Border Grid.Row="2" Stroke="{AppThemeBinding Light=#E6E8EF, Dark=#262A38}" StrokeThickness="1"
+                BackgroundColor="{AppThemeBinding Light=#FFFFFF, Dark=#14161F}"
+                Padding="6,0" Margin="0,0,0,10">
+            <Border.StrokeShape><RoundRectangle CornerRadius="10"/></Border.StrokeShape>
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="0">
+                <SearchBar x:Name="SearchBox" Placeholder="Search in this folder…"
+                           TextChanged="OnSearchTextChanged"
+                           BackgroundColor="Transparent"
+                           CancelButtonColor="#8B90A0"/>
+                <Button Grid.Column="1" x:Name="SearchClearBtn" Text="✕" FontSize="14" TextColor="#8B90A0"
+                        BackgroundColor="Transparent" Padding="12,0" IsVisible="False"
+                        Clicked="OnSearchClearClicked"/>
+            </Grid>
+        </Border>
+
+        <!-- 3 — Device Filter (compact inline) -->
+        <Border Grid.Row="3" x:Name="DeviceFilterFrame"
+                Stroke="{AppThemeBinding Light=#E6E8EF, Dark=#262A38}" StrokeThickness="1"
+                BackgroundColor="{AppThemeBinding Light=#FFFFFF, Dark=#14161F}"
+                Padding="10,8" Margin="0,0,0,10">
+            <Border.StrokeShape><RoundRectangle CornerRadius="12"/></Border.StrokeShape>
+            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+                <Border Grid.Column="0" BackgroundColor="#EEF0FF" StrokeThickness="0" Padding="8,4" VerticalOptions="Center">
+                    <Border.StrokeShape><RoundRectangle CornerRadius="20"/></Border.StrokeShape>
+                    <HorizontalStackLayout Spacing="4" VerticalOptions="Center">
+                        <BoxView WidthRequest="6" HeightRequest="6" Color="#5B5BD6" CornerRadius="3" VerticalOptions="Center"/>
+                        <Label x:Name="DeviceFilterCountLabel" Text="—" FontSize="11" FontAttributes="Bold" TextColor="#5B5BD6" VerticalOptions="Center"/>
+                    </HorizontalStackLayout>
+                </Border>
+                <VerticalStackLayout Grid.Column="1" VerticalOptions="Center" Spacing="1">
+                    <Label x:Name="DeviceFilterTitleLabel" Text="Showing all files" FontSize="12" FontAttributes="Bold"
+                           TextColor="{AppThemeBinding Light=#14161D, Dark=#F2F3F8}" LineBreakMode="TailTruncation"/>
+                    <Label x:Name="DeviceFilterSubtitleLabel" Text="Across every device" FontSize="10" TextColor="#8B90A0" LineBreakMode="TailTruncation"/>
+                </VerticalStackLayout>
+                <Button Grid.Column="2" x:Name="DeviceFilterToggleBtn" Text="This Device" FontSize="11" FontAttributes="Bold"
+                        BackgroundColor="#5B5BD6" TextColor="White" CornerRadius="10" Padding="12,0" HeightRequest="30"
+                        VerticalOptions="Center" Clicked="OnDeviceFilterToggleClicked"/>
+            </Grid>
+        </Border>
+
+        <!-- 4 — Items -->
+        <RefreshView Grid.Row="4" x:Name="Refresher" Refreshing="OnRefreshing" RefreshColor="#5B5BD6">
             <CollectionView x:Name="ItemsCollection" SelectionMode="None">
                 <CollectionView.EmptyView>
-                    <VerticalStackLayout HorizontalOptions="Center" VerticalOptions="Center" Padding="40" Spacing="10">
-                        <Label Text="📂" FontSize="44" HorizontalTextAlignment="Center"/>
-                        <Label Text="No items in this folder" FontSize="16" FontAttributes="Bold" HorizontalTextAlignment="Center"
-                               TextColor="{AppThemeBinding Light=#14161D, Dark=#F2F3F8}"/>
-                        <Label Text="Use the toolbar to upload files or create new folders." FontSize="12" TextColor="#8B90A0" HorizontalTextAlignment="Center"/>
+                    <VerticalStackLayout Padding="32" Spacing="12" HorizontalOptions="Center" VerticalOptions="Center">
+                        <Label Text="📂" FontSize="40" HorizontalTextAlignment="Center"/>
+                        <Label x:Name="EmptyTitleLabel" Text="This folder is empty" FontSize="15" FontAttributes="Bold"
+                               HorizontalTextAlignment="Center" TextColor="{AppThemeBinding Light=#14161D, Dark=#F2F3F8}"/>
+                        <Label x:Name="EmptySubtitleLabel" Text="Upload files or create a folder to get started." FontSize="12"
+                               TextColor="#8B90A0" HorizontalTextAlignment="Center"/>
+                        <Button x:Name="EmptyActionBtn" Text="Clear search" FontSize="12" FontAttributes="Bold"
+                                BackgroundColor="{AppThemeBinding Light=#FFFFFF, Dark=#14161F}" TextColor="#5B5BD6"
+                                BorderColor="{AppThemeBinding Light=#E6E8EF, Dark=#262A38}" BorderWidth="1"
+                                CornerRadius="10" Padding="16,8" IsVisible="False" Clicked="OnSearchClearClicked"/>
                     </VerticalStackLayout>
                 </CollectionView.EmptyView>
                 <CollectionView.ItemTemplate>
@@ -62,21 +112,27 @@
                                     <SwipeItem Text="Delete" BackgroundColor="#C62B3C" Invoked="OnDeleteItemInvoked"/>
                                 </SwipeItems>
                             </SwipeView.RightItems>
-                            
                             <Frame BackgroundColor="{AppThemeBinding Light=#FFFFFF, Dark=#14161F}"
                                    BorderColor="{AppThemeBinding Light=#E6E8EF, Dark=#262A38}"
-                                   CornerRadius="12" Padding="12" Margin="0,3" HasShadow="False">
+                                   CornerRadius="12" Padding="12" Margin="0,4" HasShadow="False">
                                 <Frame.GestureRecognizers>
                                     <TapGestureRecognizer Tapped="OnItemTapped"/>
                                 </Frame.GestureRecognizers>
                                 <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
-                                    <Label Grid.Column="0" Text="{Binding IconText}" FontSize="24" VerticalOptions="Center"/>
+                                    <!-- icon + sync dot -->
+                                    <HorizontalStackLayout Grid.Column="0" Spacing="7" VerticalOptions="Center">
+                                        <Border WidthRequest="8" HeightRequest="8" StrokeThickness="0"
+                                                BackgroundColor="{Binding SyncDotColor}" VerticalOptions="Center">
+                                            <Border.StrokeShape><RoundRectangle CornerRadius="4"/></Border.StrokeShape>
+                                        </Border>
+                                        <Label Text="{Binding IconText}" FontSize="22" VerticalOptions="Center"/>
+                                    </HorizontalStackLayout>
                                     <VerticalStackLayout Grid.Column="1" VerticalOptions="Center" Spacing="2">
-                                        <Label Text="{Binding Name}" FontSize="14" FontAttributes="Bold"
+                                        <Label Text="{Binding Name}" FontSize="13" FontAttributes="Bold"
                                                TextColor="{AppThemeBinding Light=#14161D, Dark=#F2F3F8}" LineBreakMode="TailTruncation"/>
                                         <Label Text="{Binding SubtitleText}" FontSize="11" TextColor="#8B90A0" LineBreakMode="TailTruncation"/>
                                     </VerticalStackLayout>
-                                    <Label Grid.Column="2" Text="⋮" FontSize="18" TextColor="#8B90A0" VerticalOptions="Center" Padding="8,0"/>
+                                    <Label Grid.Column="2" Text="›" FontSize="18" TextColor="#C8CAD4" VerticalOptions="Center" Padding="8,0"/>
                                 </Grid>
                             </Frame>
                         </SwipeView>

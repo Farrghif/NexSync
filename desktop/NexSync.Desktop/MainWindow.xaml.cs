@@ -19,7 +19,10 @@ public partial class MainWindow : System.Windows.Window
         _services = services;
         Title = "NexSync";
         Width = 560;
-        Height = 520;
+        Height = 600;
+        MinWidth = 560;
+        MinHeight = 600;
+        WindowStartupLocation = WindowStartupLocation.CenterScreen;
         Content = new ContentControl();
         _services.State.Changed += Render;
         Render();

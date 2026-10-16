@@ -49,16 +49,35 @@ public partial class LoginPage : ContentPage
         await Navigation.PushAsync(new RegisterPage(_auth));
     }
 
+    private void OnTogglePasswordClicked(object sender, EventArgs e)
+    {
+        PasswordEntry.IsPassword = !PasswordEntry.IsPassword;
+        TogglePasswordBtn.Text = PasswordEntry.IsPassword ? "Show" : "Hide";
+    }
+
+    private void OnEmailCompleted(object sender, EventArgs e)
+    {
+        PasswordEntry.Focus();
+    }
+
     private void SetBusy(bool busy)
     {
         SignInBtn.IsEnabled = !busy;
+        SignInBtn.Opacity = busy ? 0.7 : 1;
+        SignInBtn.Text = busy ? "" : "Sign In";
         BusyIndicator.IsRunning = busy;
         BusyIndicator.IsVisible = busy;
+        ServerUrlEntry.IsEnabled = !busy;
+        EmailEntry.IsEnabled = !busy;
+        PasswordEntry.IsEnabled = !busy;
+        TogglePasswordBtn.IsEnabled = !busy;
     }
 
     private void ShowError(string msg)
     {
         ErrorLabel.Text = msg;
-        ErrorLabel.IsVisible = !string.IsNullOrWhiteSpace(msg);
+        var show = !string.IsNullOrWhiteSpace(msg);
+        ErrorLabel.IsVisible = show;
+        if (ErrorFrame != null) ErrorFrame.IsVisible = show;
     }
 }

@@ -154,9 +154,17 @@ dotnet run --project backend/src/NexSync.API
 
 ### 4. Jalankan web
 
+> Semua perintah `npm` di bawah **wajib dari folder root repo** (`NexSync/`).
+> Jika kamu di folder lain (mis. `C:\Users\farre`), akan error:
+> `ENOENT ...\web\package.json` karena `--prefix web` itu relatif terhadap
+> folder kamu sekarang. Fix: `cd` ke `NexSync` dulu, atau pakai `npm --prefix C:\path\ke\NexSync\web`.
+
 ```powershell
-npm install --prefix web
-npm run dev --prefix web      # http://localhost:5173
+# dari root repo NexSync/
+npm run install:web           # atau: npm install --prefix web
+npm run dev:web               # atau: npm run dev --prefix web  → http://localhost:5173
+# alternatif tanpa --prefix:
+# cd web; npm install; npm run dev
 ```
 
 ### 5. Jalankan desktop (Windows)
@@ -217,6 +225,7 @@ VITE_API_URL=http://localhost:5000
 ## Verifikasi & Testing
 
 ```powershell
+# dari root repo NexSync/
 # Desktop (164 tests)
 dotnet test desktop/NexSync.Desktop.Tests/NexSync.Desktop.Tests.csproj --nologo -v q
 
@@ -224,11 +233,9 @@ dotnet test desktop/NexSync.Desktop.Tests/NexSync.Desktop.Tests.csproj --nologo 
 dotnet build backend/NexSync.slnx --nologo -v q
 dotnet test backend/tests/NexSync.Tests/NexSync.Tests.csproj --nologo -v q
 
-# Web build
-npm run build --prefix web
-
-# Lint web
-npm run lint --prefix web
+# Web build & lint (wajib dari root repo — lihat Mulai Cepat §4)
+npm run build:web             # atau: npm run build --prefix web
+npm run lint:web              # atau: npm run lint --prefix web
 ```
 
 Hasil baseline `v2.0-phase2` (2026-10-12): desktop **164/164**, backend **124/124**, solution build **0 error**, web build **sukses**.
