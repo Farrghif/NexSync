@@ -1,16 +1,37 @@
-## .NET
+# ============================================================
+# NexSync — .gitignore (melengkapi default Visual Studio)
+# Stack: .NET 10 / WPF / MAUI + Node/Vite + Postgres/Docker
+# ============================================================
+
+# ---------- .NET / Build ----------
 bin/
 obj/
 *.user
+*.suo
+*.userprefs
+*.userosscache
+*.rsuser
 .vs/
 TestResults/
+coverage/
+*.coverage
+*.coveragexml
+*.nupkg
+*.snupkg
+project.lock.json
+project.fragment.lock.json
+artifacts/
 
-## Storage (local file blobs, gitignored)
+# Publish / output
+publish/
+out/
+
+# ---------- Storage (local file blobs, gitignored) ----------
 storage/
 backend/src/NexSync.API/storage/
 */storage/temp/
 
-## Desktop local sync state (SQLite + tokens + recovery, NEVER commit)
+# ---------- Desktop local sync state (SQLite + tokens + recovery, NEVER commit) ----------
 .nexsync/
 *.db
 *.db-journal
@@ -21,27 +42,65 @@ backend/src/NexSync.API/storage/
 *.dat
 %LOCALAPPDATA%/NexSync/
 
-## API run logs
-api.log
-api-err.log
-
-## Ad-hoc test output logs
-testout.txt
-testout*.txt
-
-## Node / web
-node_modules/
-web/dist/
-web/.vite/
+# ---------- Secrets & env (JANGAN commit secret production) ----------
 .env
 .env.*
 !.env.example
+appsettings.Production.json
+appsettings.*.Production.json
+secrets.json
+*.pfx
+*.key
+*.pem
 
-## OS / editor
+# ---------- API run logs ----------
+api.log
+api-err.log
+
+# ---------- Ad-hoc test output logs ----------
+testout.txt
+testout*.txt
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# ---------- Node / web ----------
+node_modules/
+web/dist/
+web/dist-ssr/
+web/.vite/
+*.local
+
+# ---------- Android / MAUI ----------
+# MAUI build outputs already covered by bin/obj, but keep explicit:
+android/bin/
+android/obj/
+*.apk
+*.aab
+*.ipa
+*.app
+
+# ---------- Docker ----------
+# Keep compose file, ignore runtime data
+pgdata/
+
+# ---------- OS / editor ----------
 .DS_Store
 Thumbs.db
+ehthumbs.db
+Desktop.ini
 *.swp
+*.sw?
+*~
 .idea/
-*.suo
-*.userprefs
-coverage/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+!.vscode/launch.json
+*.ntvs*
+*.njsproj
+*.sln
