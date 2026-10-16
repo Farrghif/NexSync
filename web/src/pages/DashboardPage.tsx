@@ -15,7 +15,8 @@ import { DEFAULT_SORT, isValidSort, type SortDir, type SortKey, type SortState }
 import {
   ChevronRight, CloudIcon, DeviceIcon, DownloadIcon, FileIcon, FolderIcon,
   FolderPlusIcon, GridIcon, ListIcon, LogoutIcon, MoonIcon, PencilIcon,
-  SearchIcon, SunIcon, TrashIcon, UploadIcon, CheckIcon, AlertIcon,
+  SearchIcon, StarIcon, StarFilledIcon, EyeIcon, InfoIcon, MoveIcon, HistoryIcon,
+  SunIcon, TrashIcon, UploadIcon, CheckIcon, AlertIcon, XIcon,
 } from "../components/icons";
 
 interface Crumb {
@@ -66,6 +67,35 @@ type Item = FolderItem | FileItem;
 
 // extensible sync model — backend doesn't provide per-file status yet, derive client-side
 type SyncStatus = "synced" | "pending" | "syncing" | "failed" | "offline";
+
+const FAV_KEY = "nexsync:fav";
+const RECENT_KEY = "nexsync:recent";
+const MAX_RECENT = 12;
+
+type FavoriteId = string; // keyFor(item) = "kind:id"
+
+function loadFavorites(): Set<string> {
+  try {
+    const raw = localStorage.getItem(FAV_KEY);
+    if (!raw) return new Set();
+    const arr = JSON.parse(raw) as unknown;
+    return new Set(Array.isArray(arr) ? (arr as string[]) : []);
+  } catch { return new Set(); }
+}
+function saveFavorites(s: Set<string>) {
+  try { localStorage.setItem(FAV_KEY, JSON.stringify([...s])); } catch { /* ignore */ }
+}
+function loadRecent(): string[] {
+  try {
+    const raw = localStorage.getItem(RECENT_KEY);
+    if (!raw) return [];
+    const arr = JSON.parse(raw) as unknown;
+    return Array.isArray(arr) ? (arr as string[]).slice(0, MAX_RECENT) : [];
+  } catch { return []; }
+}
+function saveRecent(ids: string[]) {
+  try { localStorage.setItem(RECENT_KEY, JSON.stringify(ids.slice(0, MAX_RECENT))); } catch { /* ignore */ }
+}
 
 const SORT_KEY = "nexsync:sort";
 const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
@@ -208,11 +238,39 @@ export function DashboardPage() {
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const lastSelectedRef = useRef<string | null>(null);
+  // favorites & recent (local, no backend change) — very useful, zero risk
+  const [favorites, setFavorites] = useState<Set<string>>(() => loadFavorites());
+  const [recentIds, setRecentIds] = useState<string[]>(() => loadRecent());
+  const [dragOver, setDragOver] = useState(false);
+  const [preview, setPreview] = useState<FileItem | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [movePicker, setMovePicker] = useState<{ keys: string[] } | null>(null);
+  const [moveTarget, setMoveTarget] = useState<string | null>(null); // folder id or null = Root
+  const [infoItem, setInfoItem] = useState<Item | null>(null);
+  const [filterMode, setFilterMode] = useState<"all" | "fav" | "recent">("all");
   // tick forces relative time refresh every 30s without extra deps
   const [, setTick] = useState(0);
   const fileInput = useRef<HTMLInputElement>(null);
 
   const keyFor = useCallback((item: Item) => `${item.kind}:${item.id}`, []);
+
+  const toggleFavorite = useCallback((k: FavoriteId) => {
+    setFavorites((prev) => {
+      const next = new Set(prev);
+      if (next.has(k)) next.delete(k);
+      else next.add(k);
+      saveFavorites(next);
+      return next;
+    });
+  }, []);
+
+  const pushRecent = useCallback((k: FavoriteId) => {
+    setRecentIds((prev) => {
+      const next = [k, ...prev.filter((x) => x !== k)].slice(0, MAX_RECENT);
+      saveRecent(next);
+      return next;
+    });
+  }, []);
 
   const current = crumbs[crumbs.length - 1];
   const device = currentDeviceId();
@@ -348,15 +406,38 @@ export function DashboardPage() {
     [sort.key, sort.dir],
   );
 
+  // filtered view: All / Favorites / Recent (client-only, no backend)
+  const visibleItems = useMemo(() => {
+    if (filterMode === "fav") return items.filter((it) => favorites.has(keyFor(it)));
+    if (filterMode === "recent") {
+      const order = new Map(recentIds.map((k, i) => [k, i] as const));
+      return items
+        .filter((it) => order.has(keyFor(it)))
+        .slice()
+        .sort((a, b) => (order.get(keyFor(a))! - order.get(keyFor(b))!));
+    }
+    return items;
+  }, [items, filterMode, favorites, recentIds, keyFor]);
+
   const sortedFolders = useMemo(
-    () => items.filter((i): i is FolderItem => i.kind === "folder").slice().sort(comparator),
-    [items, comparator],
+    () => visibleItems.filter((i): i is FolderItem => i.kind === "folder").slice().sort((a, b) => {
+      if (filterMode === "recent") return 0; // keep recent order for folders+files split — fallback to comparator
+      return comparator(a, b);
+    }),
+    [visibleItems, comparator, filterMode],
   );
   const sortedFiles = useMemo(
-    () => items.filter((i): i is FileItem => i.kind === "file").slice().sort(comparator),
-    [items, comparator],
+    () => visibleItems.filter((i): i is FileItem => i.kind === "file").slice().sort((a, b) => {
+      if (filterMode === "recent") return 0;
+      return comparator(a, b);
+    }),
+    [visibleItems, comparator, filterMode],
   );
-  const combined = useMemo(() => items.slice().sort(comparator), [items, comparator]);
+  const combined = useMemo(() => {
+    if (filterMode === "recent") return visibleItems.slice();
+    return visibleItems.slice().sort(comparator);
+  }, [visibleItems, comparator, filterMode]);
+  const favCount = useMemo(() => items.filter((it) => favorites.has(keyFor(it))).length, [items, favorites, keyFor]);
 
   // pendingIds stays empty for now — all existing files are Synced — keep extensible
   const pendingIds = useMemo(() => new Set<string>(), []);
@@ -555,9 +636,69 @@ export function DashboardPage() {
     }
   };
 
+  const openPreview = useCallback(async (item: FileItem) => {
+    const ct = (item.contentType || "").toLowerCase();
+    const ext = item.name.split(".").pop()?.toLowerCase() ?? "";
+    const isPreviewable =
+      ct.startsWith("image/") ||
+      ct.startsWith("text/") ||
+      ct.includes("pdf") ||
+      ct.includes("json") ||
+      ["md", "txt", "csv", "log"].includes(ext);
+    if (!isPreviewable) { void onDownload(item); pushRecent(keyFor(item)); return; }
+    setPreview(item);
+    setPreviewUrl(null);
+    pushRecent(keyFor(item));
+    try {
+      const res = await api.get(`/files/${item.id}/download`, { responseType: "blob" });
+      const url = URL.createObjectURL(res.data);
+      setPreviewUrl(url);
+    } catch (e) {
+      toast.error(describeError(e));
+      setPreview(null);
+    }
+  }, [keyFor, pushRecent, toast]);
+
+  useEffect(() => {
+    if (!previewUrl) return;
+    return () => { URL.revokeObjectURL(previewUrl); };
+  }, [previewUrl]);
+
+  const confirmMove = useCallback(async () => {
+    if (!movePicker || movePicker.keys.length === 0) return;
+    const target = moveTarget; // null = Root
+    setBusy(true);
+    try {
+      for (const k of movePicker.keys) {
+        const [kind, id] = k.split(":") as [Item["kind"], string];
+        if (kind === "folder") {
+          const f = folders.find((x) => x.id === id);
+          if (!f) continue;
+          if (f.parentFolderId === target) continue;
+          // avoid moving folder into itself
+          if (target === id) { toast.error(`Cannot move "${f.name}" into itself.`); continue; }
+          await updateFolder(id, f.name, target);
+        } else {
+          const f = files.find((x) => x.id === id);
+          if (!f) continue;
+          if (f.folderId === target) continue;
+          await updateFile(id, f.name, target);
+        }
+      }
+      toast.success(movePicker.keys.length === 1 ? "Moved 1 item." : `Moved ${movePicker.keys.length} items.`);
+      setMovePicker(null);
+      exitSelectMode();
+      await load();
+    } catch (e) {
+      toast.error(describeError(e));
+    } finally {
+      setBusy(false);
+    }
+  }, [movePicker, moveTarget, folders, files, toast, load, exitSelectMode]);
+
   const openItem = (item: Item) => {
     if (item.kind === "folder") enterFolder(item);
-    else void onDownload(item);
+    else void openPreview(item);
   };
 
   const renameItem = (item: Item) => {
@@ -616,6 +757,8 @@ export function DashboardPage() {
 
   const KebabMenu = ({ item }: { item: Item }) => {
     const isOpen = openMenuId === item.id;
+    const kFav = keyFor(item);
+    const isFav = favorites.has(kFav);
     return (
       <div data-kebab-root style={{ position: "relative" }}>
         <button
@@ -646,7 +789,7 @@ export function DashboardPage() {
               position: "absolute",
               top: "calc(100% + 6px)",
               right: 0,
-              minWidth: 168,
+              minWidth: 184,
               background: "var(--surface)",
               border: "1px solid var(--border)",
               borderRadius: "var(--radius)",
@@ -673,6 +816,48 @@ export function DashboardPage() {
             >
               <span className="menu-ico"><CheckIcon size={16} /></span>
               <span className="menu-text">{selectMode && selected.has(keyFor(item)) ? "Deselect" : "Select"}</span>
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className="menu-row"
+              style={{ fontSize: "0.86rem" }}
+              onClick={() => { setOpenMenuId(null); toggleFavorite(kFav); }}
+            >
+              <span className="menu-ico">{isFav ? <StarFilledIcon size={16} /> : <StarIcon size={16} />}</span>
+              <span className="menu-text">{isFav ? "Unfavorite" : "Favorite"}</span>
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className="menu-row"
+              style={{ fontSize: "0.86rem" }}
+              onClick={() => { setOpenMenuId(null); setInfoItem(item); }}
+            >
+              <span className="menu-ico"><InfoIcon size={16} /></span>
+              <span className="menu-text">Details</span>
+            </button>
+            {item.kind === "file" && (
+              <button
+                type="button"
+                role="menuitem"
+                className="menu-row"
+                style={{ fontSize: "0.86rem" }}
+                onClick={() => { setOpenMenuId(null); void openPreview(item as FileItem); }}
+              >
+                <span className="menu-ico"><EyeIcon size={16} /></span>
+                <span className="menu-text">Preview</span>
+              </button>
+            )}
+            <button
+              type="button"
+              role="menuitem"
+              className="menu-row"
+              style={{ fontSize: "0.86rem" }}
+              onClick={() => { setOpenMenuId(null); setMovePicker({ keys: [keyFor(item)] }); setMoveTarget(current.id); }}
+            >
+              <span className="menu-ico"><MoveIcon size={16} /></span>
+              <span className="menu-text">Move to…</span>
             </button>
             <div style={{ height: 1, background: "var(--border)", margin: "4px 2px" }} aria-hidden="true" />
             {item.kind === "file" && (
@@ -748,6 +933,14 @@ export function DashboardPage() {
     );
   };
 
+  const favStar = (item: Item) => (
+    favorites.has(keyFor(item)) ? (
+      <span title="Favorite" aria-label="Favorite" style={{ display: "inline-flex", color: "var(--warning)" }}>
+        <StarFilledIcon size={13} />
+      </span>
+    ) : null
+  );
+
   const renderGrid = (list: Item[]) => (
     <div className="grid" data-select-mode={selectMode ? "true" : undefined}>
       {list.map((item) => {
@@ -812,7 +1005,7 @@ export function DashboardPage() {
                 {item.kind === "folder" ? <FolderIcon size={21} /> : <FileIcon size={21} />}
               </span>
               <div style={{ minWidth: 0 }}>
-                <div className="card-name" title={item.name}>{item.name}</div>
+                <div className="card-name" title={item.name} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>{item.name} {favStar(item)}</div>
                 <div className="card-meta">{cardMetaLine(item)}</div>
               </div>
             </div>
@@ -851,7 +1044,7 @@ export function DashboardPage() {
               title={item.name}
               aria-label={`${item.kind === "folder" ? "Open" : "Download"} ${item.name}`}
             >
-              <span className="card-name" title={item.name}>{item.name}</span>
+              <span className="card-name" title={item.name} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>{item.name} {favStar(item)}</span>
               <span className="card-meta">
                 {item.kind === "folder" ? (
                   showStatus ? <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>Folder <span style={{ opacity: 0.6 }}>·</span> {syncDot(status)}</span> : <span>Folder</span>
@@ -949,6 +1142,9 @@ export function DashboardPage() {
               <button type="button" className="btn btn-outline btn-sm" onClick={() => void runBulkDownload(selectedKeys)} disabled={!hasFileSelection || busy} title={hasFileSelection ? "Download selected files" : "Select at least one file"}>
                 <DownloadIcon size={14} /> Download
               </button>
+              <button type="button" className="btn btn-outline btn-sm" onClick={() => { setMovePicker({ keys: selectedKeys }); setMoveTarget(current.id); }} disabled={busy} title="Move selected to folder">
+                <MoveIcon size={14} /> Move
+              </button>
               <button type="button" className="btn btn-sm" style={{ background: "var(--danger)", color: "#fff", border: "1px solid var(--danger)" }} onClick={() => {
                 const names = selectedKeys.slice(0, 3).map((k) => {
                   const id = k.split(":")[1];
@@ -983,12 +1179,28 @@ export function DashboardPage() {
         </div>
         <nav className="side-nav" aria-label="Primary">
           <button
-            className={`nav-item${!isDeviceFiltering ? " active" : ""}`}
-            onClick={() => setDeviceFilter(null)}
-            aria-pressed={!isDeviceFiltering}
+            className={`nav-item${filterMode === "all" && !isDeviceFiltering ? " active" : ""}`}
+            onClick={() => { setFilterMode("all"); setDeviceFilter(null); }}
+            aria-pressed={filterMode === "all" && !isDeviceFiltering}
             title="Show all files and folders"
           >
-            <FolderIcon size={18} /> Files
+            <FolderIcon size={18} /> All files
+          </button>
+          <button
+            className={`nav-item${filterMode === "fav" ? " active" : ""}`}
+            onClick={() => { setFilterMode(filterMode === "fav" ? "all" : "fav"); }}
+            aria-pressed={filterMode === "fav"}
+            title="Only favorites"
+          >
+            <StarIcon size={18} /> Favorites {favCount > 0 && <span className="count-pill" style={{ marginLeft: "auto" }}>{favCount}</span>}
+          </button>
+          <button
+            className={`nav-item${filterMode === "recent" ? " active" : ""}`}
+            onClick={() => { setFilterMode(filterMode === "recent" ? "all" : "recent"); }}
+            aria-pressed={filterMode === "recent"}
+            title="Recently opened"
+          >
+            <HistoryIcon size={18} /> Recent
           </button>
         </nav>
         <button
@@ -1092,7 +1304,26 @@ export function DashboardPage() {
           />
         </header>
 
-        <div className="content">
+        <div
+          className="content"
+          onDragOver={(e) => { e.preventDefault(); if (!dragOver) setDragOver(true); }}
+          onDragEnter={(e) => { e.preventDefault(); setDragOver(true); }}
+          onDragLeave={(e) => { const t = e.currentTarget as HTMLElement; if (!t.contains(e.relatedTarget as Node)) setDragOver(false); }}
+          onDrop={async (e) => {
+            e.preventDefault();
+            setDragOver(false);
+            const list = e.dataTransfer.files;
+            if (!list || list.length === 0) return;
+            await onUpload(list);
+          }}
+          style={dragOver ? { outline: "2px dashed var(--brand)", outlineOffset: -2, borderRadius: "var(--radius-lg)", background: "color-mix(in srgb, var(--brand) 6%, transparent)" } : undefined}
+          aria-label="File drop zone"
+        >
+          {dragOver && (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "0.6rem 0.9rem", borderRadius: "var(--radius)", background: "var(--brand-soft)", border: "1px dashed var(--brand)", color: "var(--brand)", fontWeight: 650, fontSize: "0.88rem", marginBottom: 12 }}>
+              <UploadIcon size={16} /> Drop files to upload to “{current.name}”
+            </div>
+          )}
           <nav className="crumbs" aria-label="Breadcrumb">
             {crumbs.map((c, i) => (
               <span key={c.id ?? "root"} style={{ display: "inline-flex", alignItems: "center" }}>
@@ -1223,12 +1454,13 @@ export function DashboardPage() {
             </div>
           </div>
 
-          {isDeviceFiltering && !loading && (
+          {(isDeviceFiltering || filterMode !== "all") && !loading && (
             <div className="filter-banner" role="status" aria-live="polite">
-              <DeviceIcon size={16} aria-hidden="true" />
+              {filterMode === "fav" ? <StarIcon size={16} aria-hidden="true" /> : filterMode === "recent" ? <HistoryIcon size={16} aria-hidden="true" /> : <DeviceIcon size={16} aria-hidden="true" />}
               <span>
-                Only items from this device
-                <strong> — {device!.slice(0, 8)}…</strong>
+                {filterMode === "fav" ? <>Favorites <strong>— {combined.length} shown</strong></>
+                  : filterMode === "recent" ? <>Recent <strong>— {combined.length} shown</strong></>
+                  : <>Only items from this device<strong> — {device!.slice(0, 8)}…</strong></>}
               </span>
               <span className="count-pill" aria-label={`${sortedFolders.length + sortedFiles.length} items shown`}>
                 {sortedFolders.length + sortedFiles.length} shown
@@ -1236,8 +1468,8 @@ export function DashboardPage() {
               <button
                 type="button"
                 className="btn btn-sm btn-outline"
-                onClick={() => setDeviceFilter(null)}
-                aria-label="Clear device filter"
+                onClick={() => { setDeviceFilter(null); setFilterMode("all"); }}
+                aria-label="Clear filter"
               >
                 Show all
               </button>
@@ -1366,6 +1598,110 @@ export function DashboardPage() {
         onCancel={() => setConfirm(null)}
         onConfirm={() => void runConfirm()}
       />
+
+      {/* Move picker — choose destination folder (uses existing updateFolder/updateFile) */}
+      {movePicker && (
+        <div className="modal-overlay" role="dialog" aria-modal="true" aria-label="Move items" onMouseDown={() => setMovePicker(null)}>
+          <div className="modal" onMouseDown={(e) => e.stopPropagation()} style={{ maxWidth: 440 }}>
+            <div className="modal-head">
+              <div className="modal-ico info" aria-hidden="true"><MoveIcon size={20} /></div>
+              <div>
+                <h2>Move {movePicker.keys.length} item{movePicker.keys.length > 1 ? "s" : ""}</h2>
+                <p className="modal-desc">Choose destination. Uses rename with new parent — same API as drag.</p>
+              </div>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 260, overflow: "auto" }}>
+              <button
+                type="button"
+                className="menu-row"
+                style={{ background: moveTarget === null ? "var(--brand-soft)" : undefined, border: moveTarget === null ? "1px solid var(--brand)" : "1px solid var(--border)", borderRadius: "var(--radius-sm)" }}
+                onClick={() => setMoveTarget(null)}
+              >
+                <span className="menu-ico"><FolderIcon size={16} /></span>
+                <span className="menu-text">Root</span>
+                {moveTarget === null && <CheckIcon size={14} />}
+              </button>
+              {folders
+                .filter((f) => !movePicker.keys.includes(`folder:${f.id}`))
+                .map((f) => (
+                  <button
+                    key={f.id}
+                    type="button"
+                    className="menu-row"
+                    style={{ background: moveTarget === f.id ? "var(--brand-soft)" : undefined, border: moveTarget === f.id ? "1px solid var(--brand)" : "1px solid var(--border)", borderRadius: "var(--radius-sm)" }}
+                    onClick={() => setMoveTarget(f.id)}
+                  >
+                    <span className="menu-ico"><FolderIcon size={16} /></span>
+                    <span className="menu-text">{f.name}</span>
+                    {moveTarget === f.id && <CheckIcon size={14} />}
+                  </button>
+                ))}
+            </div>
+            <div className="modal-actions">
+              <button className="btn btn-ghost" onClick={() => setMovePicker(null)}>Cancel</button>
+              <button className="btn btn-primary" disabled={busy} onClick={() => void confirmMove()}>Move</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Details */}
+      {infoItem && (
+        <div className="modal-overlay" role="dialog" aria-modal="true" aria-label="Details" onMouseDown={() => setInfoItem(null)}>
+          <div className="modal" onMouseDown={(e) => e.stopPropagation()} style={{ maxWidth: 460 }}>
+            <div className="modal-head">
+              <div className="modal-ico info" aria-hidden="true"><InfoIcon size={20} /></div>
+              <div style={{ minWidth: 0 }}>
+                <h2 style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{infoItem.name}</h2>
+                <p className="modal-desc">{infoItem.kind === "folder" ? "Folder" : `${(infoItem as FileItem).contentType || "File"} · ${formatSize((infoItem as FileItem).size)}`}</p>
+              </div>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, fontSize: "0.88rem" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}><span className="faint">Type</span><span>{infoItem.kind === "folder" ? "Folder" : (infoItem as FileItem).contentType || "—"}</span></div>
+              {infoItem.kind === "file" && <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}><span className="faint">Size</span><span>{formatSize((infoItem as FileItem).size)}</span></div>}
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}><span className="faint">Modified</span><span>{new Date(infoItem.updatedAt).toLocaleString()}</span></div>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}><span className="faint">Created</span><span>{new Date(infoItem.createdAt).toLocaleString()}</span></div>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}><span className="faint">Location</span><span>{current.name}</span></div>
+              {favorites.has(keyFor(infoItem)) && <div style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "var(--warning)", fontWeight: 600 }}><StarFilledIcon size={14} /> Favorite</div>}
+            </div>
+            <div className="modal-actions">
+              {infoItem.kind === "file" && <button className="btn btn-outline btn-sm" onClick={() => { const it = infoItem as FileItem; setInfoItem(null); void openPreview(it); }}><EyeIcon size={14} /> Preview</button>}
+              <button className="btn btn-ghost" onClick={() => setInfoItem(null)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Preview */}
+      {preview && (
+        <div className="modal-overlay" role="dialog" aria-modal="true" aria-label={`Preview ${preview.name}`} onMouseDown={() => { setPreview(null); setPreviewUrl(null); }}>
+          <div className="modal" onMouseDown={(e) => e.stopPropagation()} style={{ maxWidth: 760, width: "min(92vw, 760px)" }}>
+            <div className="modal-head">
+              <div className="modal-ico info" aria-hidden="true"><EyeIcon size={20} /></div>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <h2 style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{preview.name}</h2>
+                <p className="modal-desc">{preview.contentType || "File"} · {formatSize(preview.size)}</p>
+              </div>
+              <button className="icon-btn" aria-label="Close preview" onClick={() => { setPreview(null); setPreviewUrl(null); }}><XIcon size={16} /></button>
+            </div>
+            <div style={{ maxHeight: "62vh", overflow: "auto", borderRadius: "var(--radius)", border: "1px solid var(--border)", background: "var(--surface-2)", display: "grid", placeItems: "center", minHeight: 160 }}>
+              {!previewUrl ? (
+                <span style={{ padding: 24, display: "inline-flex", alignItems: "center", gap: 8 }}><span className="spinner" style={{ width: 18, height: 18 }} /> Loading…</span>
+              ) : preview.contentType.startsWith("image/") ? (
+                <img src={previewUrl} alt={preview.name} style={{ maxWidth: "100%", maxHeight: "60vh", objectFit: "contain", display: "block" }} />
+              ) : preview.contentType.includes("pdf") ? (
+                <iframe src={previewUrl} title={preview.name} style={{ width: "100%", height: "55vh", border: "none", background: "#fff" }} />
+              ) : (
+                <iframe src={previewUrl} title={preview.name} style={{ width: "100%", height: "48vh", border: "none", background: "var(--surface)" }} />
+              )}
+            </div>
+            <div className="modal-actions">
+              <button className="btn btn-outline btn-sm" onClick={() => { const p = preview; setPreview(null); setPreviewUrl(null); void onDownload(p); }}><DownloadIcon size={14} /> Download</button>
+              <button className="btn btn-ghost" onClick={() => { setPreview(null); setPreviewUrl(null); }}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Device details — friendly display with copy affordance, not raw UUID slice alone */}
       {showDeviceDetails && device && (

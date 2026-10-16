@@ -270,3 +270,50 @@ export const MenuIcon = (p: IconProps) =>
       <path d="M4 18h16" />
     </>,
   );
+
+export const StarIcon = (p: IconProps) =>
+  base(p, <path d="M12 3.5 14.3 9.2 20.8 9.7 15.9 13.5 17.3 20 12 16.8 6.7 20l1.4-6.5L3.2 9.7l6.5-.5L12 3.5Z" />);
+
+export const StarFilledIcon = (p: IconProps) =>
+  base(
+    { ...p, fill: "currentColor", stroke: "none" } as IconProps,
+    <path d="M12 3.5 14.3 9.2 20.8 9.7 15.9 13.5 17.3 20 12 16.8 6.7 20l1.4-6.5L3.2 9.7l6.5-.5L12 3.5Z" />,
+  );
+
+export const EyeIcon = (p: IconProps) =>
+  base(
+    p,
+    <>
+      <path d="M2.5 12s3.4-6 9.5-6 9.5 6 9.5 6-3.4 6-9.5 6-9.5-6-9.5-6Z" />
+      <circle cx="12" cy="12" r="3.2" />
+    </>,
+  );
+
+export const InfoIcon = (p: IconProps) =>
+  base(
+    p,
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 10v6M12 7h.01" />
+    </>,
+  );
+
+export const MoveIcon = (p: IconProps) =>
+  base(
+    p,
+    <>
+      <path d="M14 9 20 12 14 15" />
+      <path d="M20 12H10" />
+      <path d="M3 7a2 2 0 0 1 2-2h4l2 2h4a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9" />
+    </>,
+  );
+
+export const HistoryIcon = (p: IconProps) =>
+  base(
+    p,
+    <>
+      <path d="M3 12a9 9 0 1 0 3-6.7" />
+      <path d="M3 3v5h5" />
+      <path d="M12 7v5l3 2" />
+    </>,
+  );
