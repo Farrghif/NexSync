@@ -213,6 +213,70 @@ function MoreIcon({ size = 16 }: { size?: number }) {
   );
 }
 
+interface FileNameMarqueeProps {
+  name: string;
+  isFav?: boolean;
+}
+
+function FileNameMarquee({ name, isFav }: FileNameMarqueeProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const textRef = useRef<HTMLSpanElement>(null);
+  const [overflowDistance, setOverflowDistance] = useState(0);
+
+  const measure = useCallback(() => {
+    if (!containerRef.current || !textRef.current) return;
+    const diff = textRef.current.scrollWidth - containerRef.current.clientWidth;
+    setOverflowDistance(diff > 2 ? diff : 0);
+  }, []);
+
+  useEffect(() => {
+    measure();
+    const raf = requestAnimationFrame(measure);
+    let ro: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== "undefined" && containerRef.current) {
+      ro = new ResizeObserver(() => measure());
+      ro.observe(containerRef.current);
+    }
+    return () => {
+      cancelAnimationFrame(raf);
+      ro?.disconnect();
+    };
+  }, [name, measure]);
+
+  const isOverflowing = overflowDistance > 0;
+  const duration = Math.max(2.6, Math.min(8, overflowDistance / 40 + 1.8));
+
+  return (
+    <div className="card-name-row" title={name}>
+      <div
+        ref={containerRef}
+        className="card-name-wrap"
+        onMouseEnter={measure}
+      >
+        <span
+          ref={textRef}
+          className={`card-name-text${isOverflowing ? " is-overflowing" : ""}`}
+          style={
+            isOverflowing
+              ? ({
+                  "--scroll-dist": `-${overflowDistance + 8}px`,
+                  "--scroll-dur": `${duration}s`,
+                } as CSSProperties)
+              : undefined
+          }
+        >
+          {name}
+        </span>
+      </div>
+      {isFav && (
+        <span title="Favorite" aria-label="Favorite" className="card-fav-star">
+          <StarFilledIcon size={13} />
+        </span>
+      )}
+    </div>
+  );
+}
+
 export function DashboardPage() {
   const { user, logout } = useAuth();
   const toast = useToast();
@@ -933,14 +997,6 @@ export function DashboardPage() {
     );
   };
 
-  const favStar = (item: Item) => (
-    favorites.has(keyFor(item)) ? (
-      <span title="Favorite" aria-label="Favorite" style={{ display: "inline-flex", color: "var(--warning)" }}>
-        <StarFilledIcon size={13} />
-      </span>
-    ) : null
-  );
-
   const renderGrid = (list: Item[]) => (
     <div className="grid" data-select-mode={selectMode ? "true" : undefined}>
       {list.map((item) => {
@@ -1004,8 +1060,8 @@ export function DashboardPage() {
               <span className={`card-icon ${item.kind}`} style={iconStyle as CSSProperties} aria-hidden="true">
                 {item.kind === "folder" ? <FolderIcon size={21} /> : <FileIcon size={21} />}
               </span>
-              <div style={{ minWidth: 0 }}>
-                <div className="card-name" title={item.name} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>{item.name} {favStar(item)}</div>
+              <div className="card-info">
+                <FileNameMarquee name={item.name} isFav={favorites.has(keyFor(item))} />
                 <div className="card-meta">{cardMetaLine(item)}</div>
               </div>
             </div>
@@ -1044,7 +1100,7 @@ export function DashboardPage() {
               title={item.name}
               aria-label={`${item.kind === "folder" ? "Open" : "Download"} ${item.name}`}
             >
-              <span className="card-name" title={item.name} style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>{item.name} {favStar(item)}</span>
+              <FileNameMarquee name={item.name} isFav={favorites.has(keyFor(item))} />
               <span className="card-meta">
                 {item.kind === "folder" ? (
                   showStatus ? <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>Folder <span style={{ opacity: 0.6 }}>·</span> {syncDot(status)}</span> : <span>Folder</span>
