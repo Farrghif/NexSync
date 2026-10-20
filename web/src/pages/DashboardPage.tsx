@@ -563,6 +563,29 @@ export function DashboardPage() {
     lastSelectedRef.current = ordered.length ? keyFor(ordered[ordered.length - 1]) : null;
   }, [keyFor]);
 
+  const runBulkDelete = useCallback(async (keys: string[]) => {
+    if (keys.length === 0) return;
+    const toDelete = keys.map((k) => {
+      const [kind, id] = k.split(":") as ["folder" | "file", string];
+      const found = [...folders, ...files].find((x) => x.id === id);
+      return { kind, id, name: (found as { name?: string })?.name ?? id };
+    });
+    setBusy(true);
+    try {
+      for (const it of toDelete) {
+        if (it.kind === "folder") await deleteFolder(it.id);
+        else await deleteFile(it.id);
+      }
+      toast.success(keys.length === 1 ? `Deleted "${toDelete[0].name}".` : `Deleted ${keys.length} items.`);
+      clearSelection();
+      await load();
+    } catch (e) {
+      toast.error(describeError(e));
+    } finally {
+      setBusy(false);
+    }
+  }, [folders, files, toast, clearSelection, load]);
+
   // Explorer-like keyboard — only when select mode is on (triggered via ⋮ → Select)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -583,7 +606,7 @@ export function DashboardPage() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [combined, selected, openMenuId, prompt, confirm, showDeviceDetails, selectAllVisible, clearSelection, selectMode, exitSelectMode]);
+  }, [combined, selected, openMenuId, prompt, confirm, showDeviceDetails, selectAllVisible, clearSelection, selectMode, exitSelectMode, runBulkDelete]);
 
   const onUpload = async (picked: FileList | null) => {
     if (!picked || picked.length === 0) return;
@@ -650,28 +673,19 @@ export function DashboardPage() {
     }
   };
 
-  const runBulkDelete = async (keys: string[]) => {
-    if (keys.length === 0) return;
-    const toDelete = keys.map((k) => {
-      const [kind, id] = k.split(":") as ["folder" | "file", string];
-      const found = [...folders, ...files].find((x) => x.id === id);
-      return { kind, id, name: (found as { name?: string })?.name ?? id };
-    });
-    setBusy(true);
+  const onDownload = useCallback(async (item: { id: string; name: string }) => {
     try {
-      for (const it of toDelete) {
-        if (it.kind === "folder") await deleteFolder(it.id);
-        else await deleteFile(it.id);
-      }
-      toast.success(keys.length === 1 ? `Deleted "${toDelete[0].name}".` : `Deleted ${keys.length} items.`);
-      clearSelection();
-      await load();
+      const res = await api.get(`/files/${item.id}/download`, { responseType: "blob" });
+      const url = URL.createObjectURL(res.data);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = item.name;
+      a.click();
+      URL.revokeObjectURL(url);
     } catch (e) {
       toast.error(describeError(e));
-    } finally {
-      setBusy(false);
     }
-  };
+  }, [toast]);
 
   const runBulkDownload = async (keys: string[]) => {
     const fileKeys = keys.filter((k) => k.startsWith("file:"));
@@ -684,20 +698,6 @@ export function DashboardPage() {
       try { await onDownload({ id, name: f.name }); ok++; } catch { /* onDownload already toasts */ }
     }
     if (ok > 1) toast.success(`Started ${ok} downloads.`);
-  };
-
-  const onDownload = async (item: { id: string; name: string }) => {
-    try {
-      const res = await api.get(`/files/${item.id}/download`, { responseType: "blob" });
-      const url = URL.createObjectURL(res.data);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = item.name;
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch (e) {
-      toast.error(describeError(e));
-    }
   };
 
   const openPreview = useCallback(async (item: FileItem) => {
@@ -721,7 +721,7 @@ export function DashboardPage() {
       toast.error(describeError(e));
       setPreview(null);
     }
-  }, [keyFor, pushRecent, toast]);
+  }, [keyFor, pushRecent, toast, onDownload]);
 
   useEffect(() => {
     if (!previewUrl) return;

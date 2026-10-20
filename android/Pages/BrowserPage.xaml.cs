@@ -284,28 +284,28 @@ public partial class BrowserPage : ContentPage
         SyncStatusDetailLabel.Text = "Up to date";
     }
 
-    private void OnDeviceFilterToggleClicked(object sender, EventArgs e)
+    private void OnDeviceFilterToggleClicked(object? sender, EventArgs e)
     {
         _filterThisDeviceOnly = !_filterThisDeviceOnly;
         UpdateDeviceFilterUi();
         ApplyFiltersAndSort();
     }
 
-    private void OnFilterAllClicked(object sender, EventArgs e)
+    private void OnFilterAllClicked(object? sender, EventArgs e)
     {
         _filterMode = "All";
         HighlightPill(FilterAllBtn);
         ApplyFiltersAndSort();
     }
 
-    private void OnFilterFavClicked(object sender, EventArgs e)
+    private void OnFilterFavClicked(object? sender, EventArgs e)
     {
         _filterMode = "Favorites";
         HighlightPill(FilterFavBtn);
         ApplyFiltersAndSort();
     }
 
-    private void OnFilterRecentClicked(object sender, EventArgs e)
+    private void OnFilterRecentClicked(object? sender, EventArgs e)
     {
         _filterMode = "Recent";
         HighlightPill(FilterRecentBtn);
@@ -325,20 +325,20 @@ public partial class BrowserPage : ContentPage
         FilterRecentBtn.TextColor = FilterRecentBtn == activeBtn ? Colors.White : Color.FromArgb("#8B90A0");
     }
 
-    private void OnSearchTextChanged(object sender, TextChangedEventArgs e)
+    private void OnSearchTextChanged(object? sender, TextChangedEventArgs e)
     {
         SearchClearBtn.IsVisible = !string.IsNullOrEmpty(e.NewTextValue);
         ApplyFiltersAndSort();
     }
 
-    private void OnSearchClearClicked(object sender, EventArgs e)
+    private void OnSearchClearClicked(object? sender, EventArgs e)
     {
         SearchBox.Text = string.Empty;
         SearchClearBtn.IsVisible = false;
         ApplyFiltersAndSort();
     }
 
-    private async void OnBackClicked(object sender, EventArgs e)
+    private async void OnBackClicked(object? sender, EventArgs e)
     {
         if (_navStack.Count > 0)
         {
@@ -347,12 +347,12 @@ public partial class BrowserPage : ContentPage
         }
     }
 
-    private async void OnRefreshing(object sender, EventArgs e)
+    private async void OnRefreshing(object? sender, EventArgs e)
     {
         await LoadCurrentFolderAsync();
     }
 
-    private async void OnItemTapped(object sender, EventArgs e)
+    private async void OnItemTapped(object? sender, EventArgs e)
     {
         if (sender is Element elem && elem.BindingContext is UiItem item)
         {
@@ -428,7 +428,7 @@ public partial class BrowserPage : ContentPage
         SaveFavorites();
     }
 
-    private async void OnFavoriteItemInvoked(object sender, EventArgs e)
+    private void OnFavoriteItemInvoked(object? sender, EventArgs e)
     {
         if (sender is SwipeItem si && si.BindingContext is UiItem item)
         {
@@ -436,7 +436,7 @@ public partial class BrowserPage : ContentPage
         }
     }
 
-    private async void OnMoveItemInvoked(object sender, EventArgs e)
+    private async void OnMoveItemInvoked(object? sender, EventArgs e)
     {
         if (sender is SwipeItem si && si.BindingContext is UiItem item)
         {
@@ -494,13 +494,13 @@ public partial class BrowserPage : ContentPage
         await DisplayAlertAsync("Item Details", msg, "Close");
     }
 
-    private async void OnRenameItemInvoked(object sender, EventArgs e)
+    private async void OnRenameItemInvoked(object? sender, EventArgs e)
     {
         if (sender is SwipeItem si && si.BindingContext is UiItem item)
             await PromptRenameAsync(item);
     }
 
-    private async void OnDeleteItemInvoked(object sender, EventArgs e)
+    private async void OnDeleteItemInvoked(object? sender, EventArgs e)
     {
         if (sender is SwipeItem si && si.BindingContext is UiItem item)
             await PromptDeleteAsync(item);
@@ -547,7 +547,7 @@ public partial class BrowserPage : ContentPage
         }
     }
 
-    private async void OnNewFolderClicked(object sender, EventArgs e)
+    private async void OnNewFolderClicked(object? sender, EventArgs e)
     {
         var name = await DisplayPromptAsync("New Folder", "Enter folder name:");
         if (string.IsNullOrWhiteSpace(name)) return;
@@ -563,7 +563,7 @@ public partial class BrowserPage : ContentPage
         }
     }
 
-    private async void OnUploadClicked(object sender, EventArgs e)
+    private async void OnUploadClicked(object? sender, EventArgs e)
     {
         try
         {
@@ -572,6 +572,7 @@ public partial class BrowserPage : ContentPage
 
             foreach (var f in files)
             {
+                if (f == null) continue;
                 using var stream = await f.OpenReadAsync();
                 await _files.UploadAsync(stream, f.FileName, CurrentFolderId, f.ContentType ?? "application/octet-stream");
             }
@@ -585,7 +586,7 @@ public partial class BrowserPage : ContentPage
     }
 
     // --- Multi-select & Bulk operations ---
-    private void OnSelectToggleClicked(object sender, EventArgs e)
+    private void OnSelectToggleClicked(object? sender, EventArgs e)
     {
         _isSelectMode = !_isSelectMode;
         SelectToolbarBtn.Text = _isSelectMode ? "Done" : "Select";
@@ -600,7 +601,7 @@ public partial class BrowserPage : ContentPage
         UpdateSelectionCount();
     }
 
-    private void OnExitSelectModeClicked(object sender, EventArgs e)
+    private void OnExitSelectModeClicked(object? sender, EventArgs e)
     {
         _isSelectMode = false;
         SelectToolbarBtn.Text = "Select";
@@ -613,7 +614,7 @@ public partial class BrowserPage : ContentPage
         }
     }
 
-    private void OnSelectAllClicked(object sender, EventArgs e)
+    private void OnSelectAllClicked(object? sender, EventArgs e)
     {
         var anyUnselected = _allItems.Any(x => !x.IsSelected);
         foreach (var it in _allItems)
@@ -627,7 +628,7 @@ public partial class BrowserPage : ContentPage
         SelectionCountLabel.Text = $"{count} selected";
     }
 
-    private async void OnBulkDownloadClicked(object sender, EventArgs e)
+    private async void OnBulkDownloadClicked(object? sender, EventArgs e)
     {
         var selectedFiles = _allItems.Where(x => x.IsSelected && !x.IsFolder).ToList();
         if (selectedFiles.Count == 0)
@@ -651,7 +652,7 @@ public partial class BrowserPage : ContentPage
         await DisplayAlertAsync("Download Completed", $"Downloaded {ok} files to app cache.", "OK");
     }
 
-    private async void OnBulkDeleteClicked(object sender, EventArgs e)
+    private async void OnBulkDeleteClicked(object? sender, EventArgs e)
     {
         var selected = _allItems.Where(x => x.IsSelected).ToList();
         if (selected.Count == 0) return;
@@ -675,7 +676,7 @@ public partial class BrowserPage : ContentPage
         await LoadCurrentFolderAsync();
     }
 
-    private async void OnSortClicked(object sender, EventArgs e)
+    private async void OnSortClicked(object? sender, EventArgs e)
     {
         var choice = await DisplayActionSheetAsync("Sort by", "Cancel", null,
             "Name (A-Z)", "Name (Z-A)",
@@ -687,7 +688,7 @@ public partial class BrowserPage : ContentPage
         ApplyFiltersAndSort();
     }
 
-    private async void OnAccountClicked(object sender, EventArgs e)
+    private async void OnAccountClicked(object? sender, EventArgs e)
     {
         var email = _auth.CurrentEmail ?? "Unknown";
         var dev = SecureStore.CurrentDeviceId ?? "—";

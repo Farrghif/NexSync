@@ -294,13 +294,6 @@ public sealed class StatusView : UserControl
             Foreground = TextDark,
             VerticalAlignment = VerticalAlignment.Center
         };
-        _searchBox.TextChanged += (_, _) =>
-        {
-            _searchClearBtn.Visibility = string.IsNullOrEmpty(_searchBox.Text) ? Visibility.Collapsed : Visibility.Visible;
-            ApplyFilters();
-        };
-        Grid.SetColumn(_searchBox, 0);
-        searchGrid.Children.Add(_searchBox);
 
         _searchClearBtn = new Button
         {
@@ -314,6 +307,15 @@ public sealed class StatusView : UserControl
             Padding = new Thickness(4, 0, 4, 0)
         };
         _searchClearBtn.Click += (_, _) => { _searchBox.Text = ""; };
+
+        _searchBox.TextChanged += (_, _) =>
+        {
+            if (_searchClearBtn != null)
+                _searchClearBtn.Visibility = string.IsNullOrEmpty(_searchBox.Text) ? Visibility.Collapsed : Visibility.Visible;
+            ApplyFilters();
+        };
+        Grid.SetColumn(_searchBox, 0);
+        searchGrid.Children.Add(_searchBox);
         Grid.SetColumn(_searchClearBtn, 1);
         searchGrid.Children.Add(_searchClearBtn);
 
