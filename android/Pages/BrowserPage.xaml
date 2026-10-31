@@ -37,28 +37,28 @@
             <HorizontalStackLayout Spacing="8" VerticalOptions="Center">
                 <Button x:Name="BackBtn" Text="‹  Back" FontSize="12" FontAttributes="Bold"
                         BackgroundColor="{AppThemeBinding Light=#FFFFFF, Dark=#14161F}"
-                        TextColor="#5B5BD6"
-                        BorderColor="{AppThemeBinding Light=#E6E8EF, Dark=#262A38}" BorderWidth="1"
+                        TextColor="#0284C7"
+                        BorderColor="{AppThemeBinding Light=#E2E8F0, Dark=#1E293B}" BorderWidth="1"
                         CornerRadius="20" Padding="14,6" HeightRequest="32" IsVisible="False"
                         Clicked="OnBackClicked"/>
-                <Border StrokeThickness="0" BackgroundColor="#5B5BD6" Padding="14,6" VerticalOptions="Center" HeightRequest="32">
+                <Border StrokeThickness="0" BackgroundColor="#0284C7" Padding="14,6" VerticalOptions="Center" HeightRequest="32">
                     <Border.StrokeShape><RoundRectangle CornerRadius="20"/></Border.StrokeShape>
                     <Label x:Name="CurrentPathLabel" Text="Root" FontSize="12" FontAttributes="Bold" TextColor="White" VerticalOptions="Center"/>
                 </Border>
 
                 <!-- Filter Mode Pills: All / Favorites / Recent -->
                 <Button x:Name="FilterAllBtn" Text="All" FontSize="11" FontAttributes="Bold"
-                        BackgroundColor="#5B5BD6" TextColor="White"
+                        BackgroundColor="#0284C7" TextColor="White"
                         CornerRadius="20" Padding="12,4" HeightRequest="32"
                         Clicked="OnFilterAllClicked"/>
                 <Button x:Name="FilterFavBtn" Text="⭐ Favorites" FontSize="11" FontAttributes="Bold"
-                        BackgroundColor="{AppThemeBinding Light=#FFFFFF, Dark=#14161F}" TextColor="#8B90A0"
-                        BorderColor="{AppThemeBinding Light=#E6E8EF, Dark=#262A38}" BorderWidth="1"
+                        BackgroundColor="{AppThemeBinding Light=#FFFFFF, Dark=#14161F}" TextColor="#64748B"
+                        BorderColor="{AppThemeBinding Light=#E2E8F0, Dark=#1E293B}" BorderWidth="1"
                         CornerRadius="20" Padding="12,4" HeightRequest="32"
                         Clicked="OnFilterFavClicked"/>
                 <Button x:Name="FilterRecentBtn" Text="🕒 Recent" FontSize="11" FontAttributes="Bold"
-                        BackgroundColor="{AppThemeBinding Light=#FFFFFF, Dark=#14161F}" TextColor="#8B90A0"
-                        BorderColor="{AppThemeBinding Light=#E6E8EF, Dark=#262A38}" BorderWidth="1"
+                        BackgroundColor="{AppThemeBinding Light=#FFFFFF, Dark=#14161F}" TextColor="#64748B"
+                        BorderColor="{AppThemeBinding Light=#E2E8F0, Dark=#1E293B}" BorderWidth="1"
                         CornerRadius="20" Padding="12,4" HeightRequest="32"
                         Clicked="OnFilterRecentClicked"/>
             </HorizontalStackLayout>
@@ -82,57 +82,57 @@
 
         <!-- 3 — Device Filter (compact inline) -->
         <Border Grid.Row="3" x:Name="DeviceFilterFrame"
-                Stroke="{AppThemeBinding Light=#E6E8EF, Dark=#262A38}" StrokeThickness="1"
+                Stroke="{AppThemeBinding Light=#E2E8F0, Dark=#1E293B}" StrokeThickness="1"
                 BackgroundColor="{AppThemeBinding Light=#FFFFFF, Dark=#14161F}"
                 Padding="10,8" Margin="0,0,0,10">
             <Border.StrokeShape><RoundRectangle CornerRadius="12"/></Border.StrokeShape>
             <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
-                <Border Grid.Column="0" BackgroundColor="#EEF0FF" StrokeThickness="0" Padding="8,4" VerticalOptions="Center">
+                <Border Grid.Column="0" BackgroundColor="#E0F2FE" StrokeThickness="0" Padding="8,4" VerticalOptions="Center">
                     <Border.StrokeShape><RoundRectangle CornerRadius="20"/></Border.StrokeShape>
                     <HorizontalStackLayout Spacing="4" VerticalOptions="Center">
-                        <BoxView WidthRequest="6" HeightRequest="6" Color="#5B5BD6" CornerRadius="3" VerticalOptions="Center"/>
-                        <Label x:Name="DeviceFilterCountLabel" Text="—" FontSize="11" FontAttributes="Bold" TextColor="#5B5BD6" VerticalOptions="Center"/>
+                        <BoxView WidthRequest="6" HeightRequest="6" Color="#0284C7" CornerRadius="3" VerticalOptions="Center"/>
+                        <Label x:Name="DeviceFilterCountLabel" Text="—" FontSize="11" FontAttributes="Bold" TextColor="#0284C7" VerticalOptions="Center"/>
                     </HorizontalStackLayout>
                 </Border>
                 <VerticalStackLayout Grid.Column="1" VerticalOptions="Center" Spacing="1">
                     <Label x:Name="DeviceFilterTitleLabel" Text="Showing all files" FontSize="12" FontAttributes="Bold"
-                           TextColor="{AppThemeBinding Light=#14161D, Dark=#F2F3F8}" LineBreakMode="TailTruncation"/>
-                    <Label x:Name="DeviceFilterSubtitleLabel" Text="Across every device" FontSize="10" TextColor="#8B90A0" LineBreakMode="TailTruncation"/>
+                           TextColor="{AppThemeBinding Light=#0F172A, Dark=#F8FAFC}" LineBreakMode="TailTruncation"/>
+                    <Label x:Name="DeviceFilterSubtitleLabel" Text="Across every device" FontSize="10" TextColor="#64748B" LineBreakMode="TailTruncation"/>
                 </VerticalStackLayout>
                 <Button Grid.Column="2" x:Name="DeviceFilterToggleBtn" Text="This Device" FontSize="11" FontAttributes="Bold"
-                        BackgroundColor="#5B5BD6" TextColor="White" CornerRadius="10" Padding="12,0" HeightRequest="30"
+                        BackgroundColor="#0284C7" TextColor="White" CornerRadius="10" Padding="12,0" HeightRequest="30"
                         VerticalOptions="Center" Clicked="OnDeviceFilterToggleClicked"/>
             </Grid>
         </Border>
 
         <!-- 4 — Selection Action Bar (Explorer multi-select mode) -->
         <Border Grid.Row="4" x:Name="SelectionBar" IsVisible="False"
-                Stroke="#5B5BD6" StrokeThickness="1"
-                BackgroundColor="{AppThemeBinding Light=#EEF0FF, Dark=#1E1E38}"
+                Stroke="#0284C7" StrokeThickness="1"
+                BackgroundColor="{AppThemeBinding Light=#E0F2FE, Dark=#0C4A6E}"
                 Padding="12,8" Margin="0,0,0,10">
             <Border.StrokeShape><RoundRectangle CornerRadius="12"/></Border.StrokeShape>
             <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8" VerticalOptions="Center">
                 <Label x:Name="SelectionCountLabel" Grid.Column="0" Text="0 selected" FontSize="12" FontAttributes="Bold"
-                       TextColor="#5B5BD6" VerticalOptions="Center"/>
+                       TextColor="#0284C7" VerticalOptions="Center"/>
                 <HorizontalStackLayout Grid.Column="2" Spacing="6" VerticalOptions="Center">
                     <Button Text="Select All" FontSize="11" FontAttributes="Bold"
-                            BackgroundColor="Transparent" TextColor="#5B5BD6" HeightRequest="30" Padding="8,0"
+                            BackgroundColor="Transparent" TextColor="#0284C7" HeightRequest="30" Padding="8,0"
                             Clicked="OnSelectAllClicked"/>
                     <Button Text="Download" FontSize="11" FontAttributes="Bold"
-                            BackgroundColor="#5B5BD6" TextColor="White" CornerRadius="8" HeightRequest="30" Padding="10,0"
+                            BackgroundColor="#0284C7" TextColor="White" CornerRadius="8" HeightRequest="30" Padding="10,0"
                             Clicked="OnBulkDownloadClicked"/>
                     <Button Text="Delete" FontSize="11" FontAttributes="Bold"
-                            BackgroundColor="#C62B3C" TextColor="White" CornerRadius="8" HeightRequest="30" Padding="10,0"
+                            BackgroundColor="#EF4444" TextColor="White" CornerRadius="8" HeightRequest="30" Padding="10,0"
                             Clicked="OnBulkDeleteClicked"/>
                     <Button Text="Exit" FontSize="11" FontAttributes="Bold"
-                            BackgroundColor="Transparent" TextColor="#8B90A0" HeightRequest="30" Padding="6,0"
+                            BackgroundColor="Transparent" TextColor="#64748B" HeightRequest="30" Padding="6,0"
                             Clicked="OnExitSelectModeClicked"/>
                 </HorizontalStackLayout>
             </Grid>
         </Border>
 
         <!-- 5 — Items Collection -->
-        <RefreshView Grid.Row="5" x:Name="Refresher" Refreshing="OnRefreshing" RefreshColor="#5B5BD6">
+        <RefreshView Grid.Row="5" x:Name="Refresher" Refreshing="OnRefreshing" RefreshColor="#0284C7">
             <CollectionView x:Name="ItemsCollection" SelectionMode="None">
                 <CollectionView.EmptyView>
                     <VerticalStackLayout Padding="32" Spacing="12" HorizontalOptions="Center" VerticalOptions="Center">

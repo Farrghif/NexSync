@@ -312,17 +312,34 @@ public partial class BrowserPage : ContentPage
         ApplyFiltersAndSort();
     }
 
+    protected override bool OnBackButtonPressed()
+    {
+        if (_isSelectMode)
+        {
+            OnExitSelectModeClicked(null, EventArgs.Empty);
+            return true;
+        }
+
+        if (_navStack.Count > 0)
+        {
+            _navStack.Pop();
+            _ = LoadCurrentFolderAsync();
+            return true;
+        }
+
+        return base.OnBackButtonPressed();
+    }
+
     private void HighlightPill(Button activeBtn)
     {
-        var inactiveBg = Color.FromArgb("#14161F");
-        FilterAllBtn.BackgroundColor = FilterAllBtn == activeBtn ? Color.FromArgb("#5B5BD6") : Colors.Transparent;
-        FilterAllBtn.TextColor = FilterAllBtn == activeBtn ? Colors.White : Color.FromArgb("#8B90A0");
+        FilterAllBtn.BackgroundColor = FilterAllBtn == activeBtn ? Color.FromArgb("#0284C7") : Colors.Transparent;
+        FilterAllBtn.TextColor = FilterAllBtn == activeBtn ? Colors.White : Color.FromArgb("#64748B");
 
-        FilterFavBtn.BackgroundColor = FilterFavBtn == activeBtn ? Color.FromArgb("#5B5BD6") : Colors.Transparent;
-        FilterFavBtn.TextColor = FilterFavBtn == activeBtn ? Colors.White : Color.FromArgb("#8B90A0");
+        FilterFavBtn.BackgroundColor = FilterFavBtn == activeBtn ? Color.FromArgb("#0284C7") : Colors.Transparent;
+        FilterFavBtn.TextColor = FilterFavBtn == activeBtn ? Colors.White : Color.FromArgb("#64748B");
 
-        FilterRecentBtn.BackgroundColor = FilterRecentBtn == activeBtn ? Color.FromArgb("#5B5BD6") : Colors.Transparent;
-        FilterRecentBtn.TextColor = FilterRecentBtn == activeBtn ? Colors.White : Color.FromArgb("#8B90A0");
+        FilterRecentBtn.BackgroundColor = FilterRecentBtn == activeBtn ? Color.FromArgb("#0284C7") : Colors.Transparent;
+        FilterRecentBtn.TextColor = FilterRecentBtn == activeBtn ? Colors.White : Color.FromArgb("#64748B");
     }
 
     private void OnSearchTextChanged(object? sender, TextChangedEventArgs e)

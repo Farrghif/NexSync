@@ -12,14 +12,14 @@ public sealed class LoginView : UserControl
 {
     private bool _busy;
     private static SolidColorBrush Br(string hex) => new((Color)ColorConverter.ConvertFromString(hex));
-    private static readonly SolidColorBrush BgLight = Br("#F6F7FB");
+    private static readonly SolidColorBrush BgLight = Br("#F8FAFC");
     private static readonly SolidColorBrush BgWhite = Br("#FFFFFF");
-    private static readonly SolidColorBrush BorderLight = Br("#E6E8EF");
-    private static readonly SolidColorBrush BorderInput = Br("#D5D8E3");
-    private static readonly SolidColorBrush Brand = Br("#5B5BD6");
-    private static readonly SolidColorBrush TextDark = Br("#14161D");
-    private static readonly SolidColorBrush TextMuted = Br("#8B90A0");
-    private static readonly SolidColorBrush Danger = Br("#C62B3C");
+    private static readonly SolidColorBrush BorderLight = Br("#E2E8F0");
+    private static readonly SolidColorBrush BorderInput = Br("#CBD5E1");
+    private static readonly SolidColorBrush Brand = Br("#0284C7");
+    private static readonly SolidColorBrush TextDark = Br("#0F172A");
+    private static readonly SolidColorBrush TextMuted = Br("#64748B");
+    private static readonly SolidColorBrush Danger = Br("#EF4444");
 
     public LoginView(AppState state, DesktopAuthService auth)
     {

@@ -9,15 +9,15 @@ namespace NexSync.Desktop.Views;
 public sealed class SetupView : UserControl
 {
     private static SolidColorBrush Br(string hex) => new((Color)ColorConverter.ConvertFromString(hex));
-    private static readonly SolidColorBrush BgLight = Br("#F6F7FB");
+    private static readonly SolidColorBrush BgLight = Br("#F8FAFC");
     private static readonly SolidColorBrush BgWhite = Br("#FFFFFF");
-    private static readonly SolidColorBrush BorderLight = Br("#E6E8EF");
-    private static readonly SolidColorBrush BorderInput = Br("#D5D8E3");
-    private static readonly SolidColorBrush Brand = Br("#5B5BD6");
-    private static readonly SolidColorBrush TextDark = Br("#14161D");
-    private static readonly SolidColorBrush TextMuted = Br("#8B90A0");
-    private static readonly SolidColorBrush Danger = Br("#C62B3C");
-    private static readonly SolidColorBrush Success = Br("#15803D");
+    private static readonly SolidColorBrush BorderLight = Br("#E2E8F0");
+    private static readonly SolidColorBrush BorderInput = Br("#CBD5E1");
+    private static readonly SolidColorBrush Brand = Br("#0284C7");
+    private static readonly SolidColorBrush TextDark = Br("#0F172A");
+    private static readonly SolidColorBrush TextMuted = Br("#64748B");
+    private static readonly SolidColorBrush Danger = Br("#EF4444");
+    private static readonly SolidColorBrush Success = Br("#10B981");
 
     public SetupView(AppState state, Func<string, SetupService> setups)
     {
@@ -238,12 +238,12 @@ public sealed class SetupView : UserControl
 
     private static Border CreateChoiceCard(string icon, string title, string desc, string buttonText, bool isPrimary, Action onClick)
     {
-        var brBrand = (SolidColorBrush)new BrushConverter().ConvertFromString("#5B5BD6");
-        var brLight = (SolidColorBrush)new BrushConverter().ConvertFromString("#E6E8EF");
+        var brBrand = (SolidColorBrush)new BrushConverter().ConvertFromString("#0284C7");
+        var brLight = (SolidColorBrush)new BrushConverter().ConvertFromString("#E2E8F0");
         var brWhite = Brushes.White;
-        var textDark = (SolidColorBrush)new BrushConverter().ConvertFromString("#14161D");
-        var textMuted = (SolidColorBrush)new BrushConverter().ConvertFromString("#8B90A0");
-        var bgLight = (SolidColorBrush)new BrushConverter().ConvertFromString("#F6F7FB");
+        var textDark = (SolidColorBrush)new BrushConverter().ConvertFromString("#0F172A");
+        var textMuted = (SolidColorBrush)new BrushConverter().ConvertFromString("#64748B");
+        var bgLight = (SolidColorBrush)new BrushConverter().ConvertFromString("#F8FAFC");
 
         var outer = new Border
         {

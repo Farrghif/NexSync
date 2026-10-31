@@ -38,6 +38,7 @@ public sealed class StatusView : UserControl
     private readonly TextBox _searchBox;
     private readonly Button _searchClearBtn;
     private readonly TextBlock _pathBadge;
+    private readonly StackPanel _breadcrumbsPanel;
     private readonly Button _backBtn;
     private readonly StackPanel _itemsStack;
     private readonly Border _selectionBar;
@@ -58,18 +59,18 @@ public sealed class StatusView : UserControl
     private readonly string _recentFile;
 
     private static SolidColorBrush Br(string hex) => new((Color)ColorConverter.ConvertFromString(hex));
-    private static readonly SolidColorBrush BgLight = Br("#F6F7FB");
+    private static readonly SolidColorBrush BgLight = Br("#F8FAFC");
     private static readonly SolidColorBrush BgWhite = Br("#FFFFFF");
-    private static readonly SolidColorBrush BorderLight = Br("#E6E8EF");
-    private static readonly SolidColorBrush Brand = Br("#5B5BD6");
-    private static readonly SolidColorBrush BrandLight = Br("#EEF0FF");
-    private static readonly SolidColorBrush TextDark = Br("#14161D");
-    private static readonly SolidColorBrush TextMuted = Br("#8B90A0");
-    private static readonly SolidColorBrush Danger = Br("#C62B3C");
-    private static readonly SolidColorBrush Success = Br("#15803D");
-    private static readonly SolidColorBrush Amber = Br("#CA8A04");
-    private static readonly SolidColorBrush SuccessBg = Br("#DCFCE7");
-    private static readonly SolidColorBrush AmberBg = Br("#FEF9C3");
+    private static readonly SolidColorBrush BorderLight = Br("#E2E8F0");
+    private static readonly SolidColorBrush Brand = Br("#0284C7");
+    private static readonly SolidColorBrush BrandLight = Br("#E0F2FE");
+    private static readonly SolidColorBrush TextDark = Br("#0F172A");
+    private static readonly SolidColorBrush TextMuted = Br("#64748B");
+    private static readonly SolidColorBrush Danger = Br("#EF4444");
+    private static readonly SolidColorBrush Success = Br("#10B981");
+    private static readonly SolidColorBrush Amber = Br("#F59E0B");
+    private static readonly SolidColorBrush SuccessBg = Br("#ECFDF5");
+    private static readonly SolidColorBrush AmberBg = Br("#FEF3C7");
 
     public sealed class DesktopFileItem
     {
@@ -225,13 +226,16 @@ public sealed class StatusView : UserControl
         _pathBadge = new TextBlock
         {
             Text = "Root",
-            FontSize = 13,
-            FontWeight = FontWeights.Bold,
-            Foreground = TextDark,
-            VerticalAlignment = VerticalAlignment.Center,
-            TextTrimming = TextTrimming.CharacterEllipsis
+            Visibility = Visibility.Collapsed
         };
         pathLeft.Children.Add(_pathBadge);
+
+        _breadcrumbsPanel = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        pathLeft.Children.Add(_breadcrumbsPanel);
         Grid.SetColumn(pathLeft, 0);
         pathBar.Children.Add(pathLeft);
 
@@ -624,6 +628,37 @@ public sealed class StatusView : UserControl
 
         Content = outer;
 
+        Focusable = true;
+        PreviewKeyDown += (s, e) =>
+        {
+            if (e.Key == Key.Escape)
+            {
+                if (_isSelectMode)
+                {
+                    ToggleSelectMode(forceOff: true);
+                    e.Handled = true;
+                }
+                else if (_backBtn.Visibility == Visibility.Visible)
+                {
+                    NavigateBack();
+                    e.Handled = true;
+                }
+            }
+            else if (e.Key == Key.Delete && _isSelectMode)
+            {
+                if (_currentItems.Any(x => x.IsSelected))
+                {
+                    BulkDeleteSelected();
+                    e.Handled = true;
+                }
+            }
+            else if (e.Key == Key.F5)
+            {
+                RefreshFileList();
+                e.Handled = true;
+            }
+        };
+
         // State handlers
         state.Changed += () =>
         {
@@ -734,6 +769,15 @@ public sealed class StatusView : UserControl
             _emptyTitle.Text = "No local sync folder selected";
             _emptySubtitle.Text = "Click 'Change folder' to set your sync directory.";
             _pathBadge.Text = "No Folder";
+            _breadcrumbsPanel.Children.Clear();
+            _breadcrumbsPanel.Children.Add(new TextBlock
+            {
+                Text = "No Folder",
+                FontSize = 13,
+                FontWeight = FontWeights.Bold,
+                Foreground = TextMuted,
+                VerticalAlignment = VerticalAlignment.Center
+            });
             _backBtn.Visibility = Visibility.Collapsed;
             return;
         }
@@ -747,6 +791,7 @@ public sealed class StatusView : UserControl
         _backBtn.Visibility = isSub ? Visibility.Visible : Visibility.Collapsed;
         var rel = isSub ? Path.GetRelativePath(root, _currentDirectory) : "Root";
         _pathBadge.Text = rel.StartsWith(".") ? "Root" : rel;
+        UpdateBreadcrumbs(root, _currentDirectory);
 
         var prevSelected = keepSelection ? _currentItems.Where(x => x.IsSelected).Select(x => x.FullPath).ToHashSet(StringComparer.OrdinalIgnoreCase) : new HashSet<string>();
 
@@ -853,13 +898,26 @@ public sealed class StatusView : UserControl
         {
             var card = new Border
             {
-                Background = BgWhite,
-                BorderBrush = BorderLight,
+                Background = item.IsSelected ? BrandLight : BgWhite,
+                BorderBrush = item.IsSelected ? Brand : BorderLight,
                 BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(8),
-                Padding = new Thickness(12, 8, 12, 8),
+                CornerRadius = new CornerRadius(10),
+                Padding = new Thickness(14, 10, 14, 10),
                 Margin = new Thickness(0, 0, 0, 6),
                 Cursor = Cursors.Hand
+            };
+            card.MouseEnter += (_, _) =>
+            {
+                if (!item.IsSelected)
+                {
+                    card.Background = Br("#F8FAFC");
+                    card.BorderBrush = Br("#CBD5E1");
+                }
+            };
+            card.MouseLeave += (_, _) =>
+            {
+                card.Background = item.IsSelected ? BrandLight : BgWhite;
+                card.BorderBrush = item.IsSelected ? Brand : BorderLight;
             };
 
             var rowGrid = new Grid();
@@ -1348,6 +1406,79 @@ public sealed class StatusView : UserControl
             Margin = new Thickness(4, 0, 0, 0),
             Cursor = Cursors.Hand
         };
+        btn.Click += (_, _) => onClick();
+        return btn;
+    }
+
+    private void UpdateBreadcrumbs(string root, string currentDir)
+    {
+        _breadcrumbsPanel.Children.Clear();
+
+        bool isRoot = currentDir.Equals(root, StringComparison.OrdinalIgnoreCase);
+        var rootBtn = CreateCrumbBtn("Root", () =>
+        {
+            if (!_currentDirectory.Equals(root, StringComparison.OrdinalIgnoreCase))
+            {
+                _currentDirectory = root;
+                RefreshFileList();
+            }
+        }, isCurrent: isRoot);
+        _breadcrumbsPanel.Children.Add(rootBtn);
+
+        if (!isRoot && currentDir.StartsWith(root, StringComparison.OrdinalIgnoreCase))
+        {
+            var rel = Path.GetRelativePath(root, currentDir);
+            var parts = rel.Split(new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar }, StringSplitOptions.RemoveEmptyEntries);
+            var accum = root;
+
+            for (int i = 0; i < parts.Length; i++)
+            {
+                var sep = new TextBlock
+                {
+                    Text = "›",
+                    Foreground = TextMuted,
+                    Margin = new Thickness(3, 0, 3, 0),
+                    VerticalAlignment = VerticalAlignment.Center,
+                    FontSize = 13
+                };
+                _breadcrumbsPanel.Children.Add(sep);
+
+                accum = Path.Combine(accum, parts[i]);
+                var target = accum;
+                bool isLast = (i == parts.Length - 1);
+
+                var crumb = CreateCrumbBtn(parts[i], () =>
+                {
+                    if (!_currentDirectory.Equals(target, StringComparison.OrdinalIgnoreCase))
+                    {
+                        _currentDirectory = target;
+                        RefreshFileList();
+                    }
+                }, isCurrent: isLast);
+                _breadcrumbsPanel.Children.Add(crumb);
+            }
+        }
+    }
+
+    private Button CreateCrumbBtn(string text, Action onClick, bool isCurrent)
+    {
+        var btn = new Button
+        {
+            Content = text,
+            Background = isCurrent ? BrandLight : Brushes.Transparent,
+            Foreground = isCurrent ? Brand : TextDark,
+            FontWeight = isCurrent ? FontWeights.Bold : FontWeights.Normal,
+            FontSize = 12,
+            Padding = new Thickness(6, 3, 6, 3),
+            Cursor = Cursors.Hand,
+            BorderThickness = new Thickness(0),
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        if (!isCurrent)
+        {
+            btn.MouseEnter += (_, _) => { btn.Foreground = Brand; btn.Background = Br("#F1F5F9"); };
+            btn.MouseLeave += (_, _) => { btn.Foreground = TextDark; btn.Background = Brushes.Transparent; };
+        }
         btn.Click += (_, _) => onClick();
         return btn;
     }

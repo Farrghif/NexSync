@@ -10,11 +10,11 @@
 
             <!-- Brand badge -->
             <HorizontalStackLayout Spacing="12" HorizontalOptions="Center" Margin="0,0,0,16">
-                <Frame BackgroundColor="#5B5BD6" CornerRadius="12" WidthRequest="44" HeightRequest="44" Padding="0" HasShadow="False" BorderColor="Transparent" VerticalOptions="Center">
+                <Frame BackgroundColor="#0284C7" CornerRadius="12" WidthRequest="44" HeightRequest="44" Padding="0" HasShadow="False" BorderColor="Transparent" VerticalOptions="Center">
                     <Label Text="☁" TextColor="White" FontSize="22" HorizontalOptions="Center" VerticalOptions="Center"/>
                 </Frame>
                 <Label Text="NexSync" FontSize="26" FontAttributes="Bold" VerticalOptions="Center"
-                       TextColor="{AppThemeBinding Light=#14161D, Dark=#F2F3F8}"/>
+                       TextColor="{AppThemeBinding Light=#0F172A, Dark=#F8FAFC}"/>
             </HorizontalStackLayout>
 
             <Label Text="Create Account" FontSize="20" FontAttributes="Bold" HorizontalTextAlignment="Center"
@@ -59,21 +59,21 @@
                                        FontSize="14" TextColor="{AppThemeBinding Light=#14161D, Dark=#F2F3F8}" PlaceholderColor="#8B90A0"
                                        BackgroundColor="Transparent" Completed="OnRegisterClicked"/>
                                 <Button Grid.Column="1" x:Name="TogglePasswordBtn" Text="Show" FontSize="11" FontAttributes="Bold"
-                                        TextColor="#5B5BD6" BackgroundColor="Transparent" Padding="8,0"
+                                        TextColor="#0284C7" BackgroundColor="Transparent" Padding="8,0"
                                         Clicked="OnTogglePasswordClicked"/>
                             </Grid>
                         </Border>
-                        <Label Text="At least 8 characters" FontSize="10" TextColor="#8B90A0"/>
+                        <Label Text="At least 8 characters" FontSize="10" TextColor="#64748B"/>
                     </VerticalStackLayout>
 
                     <!-- Error -->
-                    <Border x:Name="ErrorFrame" IsVisible="False" StrokeThickness="0" BackgroundColor="#FDECEE" Padding="10">
+                    <Border x:Name="ErrorFrame" IsVisible="False" StrokeThickness="0" BackgroundColor="#FEF2F2" Padding="10">
                         <Border.StrokeShape><RoundRectangle CornerRadius="10"/></Border.StrokeShape>
-                        <Label x:Name="ErrorLabel" TextColor="#C62B3C" FontSize="12" IsVisible="False"/>
+                        <Label x:Name="ErrorLabel" TextColor="#EF4444" FontSize="12" IsVisible="False"/>
                     </Border>
 
                     <Grid Margin="0,6,0,0">
-                        <Button x:Name="RegisterBtn" Text="Create Account" BackgroundColor="#5B5BD6" TextColor="White"
+                        <Button x:Name="RegisterBtn" Text="Create Account" BackgroundColor="#0284C7" TextColor="White"
                                 CornerRadius="12" HeightRequest="48" FontAttributes="Bold" FontSize="14"
                                 Clicked="OnRegisterClicked"/>
                         <ActivityIndicator x:Name="BusyIndicator" IsRunning="False" IsVisible="False"
@@ -81,7 +81,7 @@
                                            HorizontalOptions="Center" VerticalOptions="Center" InputTransparent="True"/>
                     </Grid>
 
-                    <Button Text="Already have an account?  Sign in →" TextColor="#5B5BD6" FontSize="13"
+                    <Button Text="Already have an account?  Sign in →" TextColor="#0284C7" FontSize="13"
                             BackgroundColor="Transparent" Clicked="OnGoToSignInClicked" Padding="0" Margin="0,4,0,0"/>
                 </VerticalStackLayout>
             </Frame>

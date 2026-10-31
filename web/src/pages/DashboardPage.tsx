@@ -1508,6 +1508,18 @@ export function DashboardPage() {
                 <ListIcon size={17} />
               </button>
             </div>
+            <button
+              type="button"
+              className={`btn btn-sm ${selectMode ? "btn-primary" : "btn-outline"}`}
+              onClick={() => {
+                if (selectMode) exitSelectMode();
+                else enterSelectMode();
+              }}
+              title={selectMode ? "Exit select mode" : "Select files"}
+              aria-pressed={selectMode}
+            >
+              <CheckIcon size={14} /> {selectMode ? "Done" : "Select"}
+            </button>
           </div>
 
           {(isDeviceFiltering || filterMode !== "all") && !loading && (
@@ -1784,6 +1796,47 @@ export function DashboardPage() {
           </div>
         </div>
       )}
+
+      {/* Mobile Bottom Navigation (Google Drive / OneDrive style) */}
+      <nav className="mobile-bottom-nav" aria-label="Mobile Navigation">
+        <button
+          type="button"
+          className={`mobile-nav-item${filterMode === "all" && !isDeviceFiltering ? " active" : ""}`}
+          onClick={() => { setFilterMode("all"); setDeviceFilter(null); }}
+          aria-pressed={filterMode === "all" && !isDeviceFiltering}
+        >
+          <FolderIcon size={20} />
+          <span>Files</span>
+        </button>
+        <button
+          type="button"
+          className={`mobile-nav-item${filterMode === "fav" ? " active" : ""}`}
+          onClick={() => { setFilterMode(filterMode === "fav" ? "all" : "fav"); }}
+          aria-pressed={filterMode === "fav"}
+        >
+          <StarIcon size={20} />
+          <span>Starred {favCount > 0 ? `(${favCount})` : ""}</span>
+        </button>
+        <button
+          type="button"
+          className={`mobile-nav-item${filterMode === "recent" ? " active" : ""}`}
+          onClick={() => { setFilterMode(filterMode === "recent" ? "all" : "recent"); }}
+          aria-pressed={filterMode === "recent"}
+        >
+          <HistoryIcon size={20} />
+          <span>Recent</span>
+        </button>
+        <button
+          type="button"
+          className={`mobile-nav-item${isDeviceFiltering ? " active" : ""}`}
+          onClick={() => setDeviceFilter(isDeviceFiltering ? null : device)}
+          disabled={!device}
+          aria-pressed={isDeviceFiltering}
+        >
+          <DeviceIcon size={20} />
+          <span>Device</span>
+        </button>
+      </nav>
     </div>
   );
 }
