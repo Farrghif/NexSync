@@ -11,6 +11,7 @@ import com.nexsync.storagenode.data.repositories.ServerStateRepositoryImpl
 import com.nexsync.storagenode.data.repositories.StorageDirectoryRepositoryImpl
 import com.nexsync.storagenode.data.repositories.StorageFileRepositoryImpl
 import com.nexsync.storagenode.data.repositories.StorageNodeRepositoryImpl
+import com.nexsync.storagenode.data.storage.SafStorageAdapter
 import com.nexsync.storagenode.domain.repositories.AuthorizedDeviceRepository
 import com.nexsync.storagenode.domain.repositories.DeviceCredentialsRepository
 import com.nexsync.storagenode.domain.repositories.FileTransferRepository
@@ -20,6 +21,8 @@ import com.nexsync.storagenode.domain.repositories.ServerStateRepository
 import com.nexsync.storagenode.domain.repositories.StorageDirectoryRepository
 import com.nexsync.storagenode.domain.repositories.StorageFileRepository
 import com.nexsync.storagenode.domain.repositories.StorageNodeRepository
+import com.nexsync.storagenode.domain.storage.StorageAdapter
+import com.nexsync.storagenode.domain.storage.StreamConfig
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -114,5 +117,37 @@ object RepositoryModule {
         db: AppDatabase
     ): ServerStateRepository {
         return ServerStateRepositoryImpl(db.serverStateDao())
+    }
+}
+
+@Module
+@InstallIn(SingletonComponent::class)
+object StorageModule {
+    
+    @Provides
+    @Singleton
+    fun provideStreamConfig(): StreamConfig {
+        return StreamConfig(
+            bufferSizeBytes = 65536, // 64 KB
+            maxConcurrentReads = 3,
+            readTimeoutMs = 30000L,
+            writeTimeoutMs = 30000L
+        )
+    }
+    
+    @Provides
+    @Singleton
+    fun provideStorageAdapter(
+        @ApplicationContext context: Context,
+        streamConfig: StreamConfig
+    ): StorageAdapter {
+        // TODO: In Sprint 4, get rootTreeUri from preferences/pairing
+        // For now, using placeholder
+        val rootTreeUri = "content://com.android.providers.media.documents/tree/primary%3A"
+        return SafStorageAdapter(
+            context = context,
+            rootTreeUri = rootTreeUri,
+            streamConfig = streamConfig
+        )
     }
 }
