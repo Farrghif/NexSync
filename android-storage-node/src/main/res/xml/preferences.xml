@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
+    <PreferenceCategory android:title="Server Configuration">
+        <EditTextPreference
+            android:key="server_port"
+            android:title="Listening Port"
+            android:defaultValue="8443"
+            android:inputType="number" />
+        
+        <SwitchPreferenceCompat
+            android:key="mdns_enabled"
+            android:title="Enable mDNS Discovery"
+            android:defaultValue="true" />
+    </PreferenceCategory>
+
+    <PreferenceCategory android:title="Network">
+        <SwitchPreferenceCompat
+            android:key="allow_lan_access"
+            android:title="Allow Local Network Access"
+            android:defaultValue="true" />
+    </PreferenceCategory>
+
+    <PreferenceCategory android:title="About">
+        <Preference
+            android:key="app_version"
+            android:title="App Version"
+            android:selectable="false" />
+    </PreferenceCategory>
+</PreferenceScreen>
