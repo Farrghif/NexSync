@@ -27,7 +27,7 @@ publish/
 out/
 
 # ---------- Storage (local file blobs, gitignored) ----------
-storage/
+/storage/
 backend/src/NexSync.API/storage/
 */storage/temp/
 
