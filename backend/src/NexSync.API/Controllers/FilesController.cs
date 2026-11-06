@@ -13,7 +13,16 @@ namespace NexSync.API.Controllers;
 [Authorize]
 public class FilesController(IFileService files, IDeviceService devices, IIdempotencyStore idempotency) : ControllerBase
 {
-    private Guid UserId => Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+    private Guid UserId
+    {
+        get
+        {
+            var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+                throw new NexSync.Domain.Exceptions.UnauthorizedAccessException("Invalid or missing user claim.");
+            return userId;
+        }
+    }
 
     private async Task<Guid?> ResolveDeviceAsync()
     {
@@ -28,15 +37,19 @@ public class FilesController(IFileService files, IDeviceService devices, IIdempo
     [RequestSizeLimit(104_857_600)]
     public async Task<IActionResult> Upload(IFormFile file, [FromQuery] Guid? folderId)
     {
-        if (file is null || file.Length == 0) return BadRequest(new { message = "No file provided." });
+        if (file is null || file.Length == 0) 
+            return BadRequest(new { message = "No file provided." });
+        
         var deviceId = await ResolveDeviceAsync();
         MutationContext? mutation = null;
+        
         if (Request.Headers.TryGetValue("X-Operation-Id", out var rawOp))
         {
             if (!Guid.TryParse(rawOp.ToString(), out var opId))
                 throw new DomainException("X-Operation-Id header must be a valid UUID.");
             mutation = new MutationContext(opId, string.Empty, StatusCodes.Status201Created);
         }
+        
         await using var stream = file.OpenReadStream();
         var res = await files.UploadAsync(UserId, stream, file.FileName, file.ContentType, folderId, deviceId, mutation);
         return CreatedAtAction(nameof(GetById), new { id = res.Id }, res);
@@ -44,44 +57,62 @@ public class FilesController(IFileService files, IDeviceService devices, IIdempo
 
     [HttpGet("{id:guid}")]
     public async Task<IActionResult> GetById(Guid id)
-        => Ok(await files.GetByIdAsync(UserId, id));
+    {
+        if (id == Guid.Empty)
+            throw new DomainException("Invalid file ID.");
+        return Ok(await files.GetByIdAsync(UserId, id));
+    }
 
     [HttpGet("{id:guid}/download")]
     public async Task<IActionResult> Download(Guid id)
     {
+        if (id == Guid.Empty)
+            throw new DomainException("Invalid file ID.");
+        
         var meta = await files.GetByIdAsync(UserId, id);
         var stream = await files.DownloadAsync(UserId, id);
-        return File(stream, meta.ContentType, meta.Name);
+        
+        return File(stream, meta.ContentType, meta.Name, enableRangeProcessing: true);
     }
 
     [HttpPut("{id:guid}")]
     public async Task<IActionResult> Update(Guid id, [FromBody] UpdateFileRequest req)
     {
+        if (id == Guid.Empty)
+            throw new DomainException("Invalid file ID.");
+        
         var deviceId = await ResolveDeviceAsync();
         var mutation = IdempotencyHelper.Parse(Request.Headers,
             RequestFingerprint.ForMutation("PUT", $"/api/files/{id}",
                 ("name", req.Name), ("folderId", req.FolderId?.ToString())),
             StatusCodes.Status200OK);
+        
         if (mutation is not null)
         {
             var replay = await IdempotencyHelper.ReplayIfSeenAsync(idempotency, UserId, mutation);
             if (replay is not null) return replay;
         }
+        
         return Ok(await files.UpdateAsync(UserId, id, req.Name, req.FolderId, deviceId, mutation));
     }
 
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> Delete(Guid id)
     {
+        if (id == Guid.Empty)
+            throw new DomainException("Invalid file ID.");
+        
         var deviceId = await ResolveDeviceAsync();
         var mutation = IdempotencyHelper.Parse(Request.Headers,
             RequestFingerprint.ForMutation("DELETE", $"/api/files/{id}"),
             StatusCodes.Status204NoContent);
+        
         if (mutation is not null)
         {
             var replay = await IdempotencyHelper.ReplayIfSeenAsync(idempotency, UserId, mutation);
             if (replay is not null) return replay;
         }
+        
         await files.DeleteAsync(UserId, id, deviceId, mutation);
         return NoContent();
     }

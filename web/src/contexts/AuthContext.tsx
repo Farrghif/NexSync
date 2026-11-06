@@ -16,6 +16,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // Load user from sessionStorage on mount
     const stored = sessionStorage.getItem("nexsync:user");
     if (stored) {
       try {
@@ -25,18 +26,45 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     }
     setLoading(false);
+
+    // Handle unauthorized (token expired, revoked, etc.)
     const onUnauthorized = () => {
       setUser(null);
       sessionStorage.removeItem("nexsync:user");
     };
     window.addEventListener("nexsync:unauthorized", onUnauthorized);
-    return () => window.removeEventListener("nexsync:unauthorized", onUnauthorized);
+
+    // Handle storage events for cross-tab synchronization
+    // When user logs in/out in another tab, sync the state
+    const onStorageChange = (e: StorageEvent) => {
+      if (e.key === "nexsync:user") {
+        if (e.newValue) {
+          try {
+            setUser(JSON.parse(e.newValue));
+          } catch {
+            setUser(null);
+          }
+        } else {
+          // User logged out in another tab
+          setUser(null);
+        }
+      }
+    };
+    window.addEventListener("storage", onStorageChange);
+
+    return () => {
+      window.removeEventListener("nexsync:unauthorized", onUnauthorized);
+      window.removeEventListener("storage", onStorageChange);
+    };
   }, []);
 
   const persist = (u: User | null) => {
     setUser(u);
-    if (u) sessionStorage.setItem("nexsync:user", JSON.stringify(u));
-    else sessionStorage.removeItem("nexsync:user");
+    if (u) {
+      sessionStorage.setItem("nexsync:user", JSON.stringify(u));
+    } else {
+      sessionStorage.removeItem("nexsync:user");
+    }
   };
 
   const login = async (email: string, password: string) => {
@@ -52,7 +80,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     persist(null);
   };
 
-  return <AuthContext.Provider value={{ user, loading, login, register, logout }}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider value={{ user, loading, login, register, logout }}>
+      {children}
+    </AuthContext.Provider>
+  );
 }
 
 export function useAuth(): AuthState {

@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using NexSync.Domain.Exceptions;
 
 namespace NexSync.Application.Validators;
@@ -30,20 +31,61 @@ public static class FileNameValidator
 
 public static class AuthValidator
 {
+    /// <summary>
+    /// RFC 5322 compliant email validation regex (simplified but practical).
+    /// Rejects: "test@", "@test", "test@@test", "test @test", etc.
+    /// </summary>
+    private static readonly Regex EmailRegex = new(
+        @"^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$",
+        RegexOptions.Compiled);
+
     public static void ValidateRegister(string email, string password, string fullName)
     {
-        if (string.IsNullOrWhiteSpace(email) || !email.Contains('@'))
-            throw new DomainException("Invalid email address.");
+        ValidateEmail(email);
         ValidatePassword(password);
-        if (string.IsNullOrWhiteSpace(fullName))
-            throw new DomainException("Full name is required.");
+        ValidateFullName(fullName);
+    }
+
+    public static void ValidateEmail(string email)
+    {
+        if (string.IsNullOrWhiteSpace(email))
+            throw new DomainException("Email address is required.");
+        if (email.Length > 254) // RFC 5321
+            throw new DomainException("Email address exceeds maximum length.");
+        if (!EmailRegex.IsMatch(email))
+            throw new DomainException("Invalid email address format.");
     }
 
     public static void ValidatePassword(string password)
     {
-        if (string.IsNullOrEmpty(password) || password.Length < 8)
+        if (string.IsNullOrEmpty(password))
+            throw new DomainException("Password is required.");
+        if (password.Length < 8)
             throw new DomainException("Password must be at least 8 characters.");
         if (password.Length > 72)
             throw new DomainException("Password must not exceed 72 characters.");
+        
+        // Password complexity: at least 3 of 4 categories
+        bool hasLower = password.Any(char.IsLower);
+        bool hasUpper = password.Any(char.IsUpper);
+        bool hasDigit = password.Any(char.IsDigit);
+        bool hasSpecial = password.Any(c => !char.IsLetterOrDigit(c));
+        
+        int complexityCount = (hasLower ? 1 : 0) + (hasUpper ? 1 : 0) 
+            + (hasDigit ? 1 : 0) + (hasSpecial ? 1 : 0);
+        
+        if (complexityCount < 3)
+            throw new DomainException(
+                "Password must contain at least 3 of: lowercase letters, uppercase letters, digits, special characters.");
+    }
+
+    public static void ValidateFullName(string fullName)
+    {
+        if (string.IsNullOrWhiteSpace(fullName))
+            throw new DomainException("Full name is required.");
+        if (fullName.Length > 100)
+            throw new DomainException("Full name exceeds 100 characters.");
+        if (fullName.Length < 2)
+            throw new DomainException("Full name must be at least 2 characters.");
     }
 }

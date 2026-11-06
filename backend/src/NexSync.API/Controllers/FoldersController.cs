@@ -13,7 +13,19 @@ namespace NexSync.API.Controllers;
 [Authorize]
 public class FoldersController(IFolderService folders, IDeviceService devices, IIdempotencyStore idempotency) : ControllerBase
 {
-    private Guid UserId => Guid.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+    private const int MaxPageSize = 1000;
+    private const int DefaultPageSize = 50;
+    
+    private Guid UserId
+    {
+        get
+        {
+            var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+                throw new NexSync.Domain.Exceptions.UnauthorizedAccessException("Invalid or missing user claim.");
+            return userId;
+        }
+    }
 
     private async Task<Guid?> ResolveDeviceAsync()
     {
@@ -24,9 +36,25 @@ public class FoldersController(IFolderService folders, IDeviceService devices, I
         return deviceId;
     }
 
+    private static void ValidatePagination(int page, int pageSize)
+    {
+        if (page < 1)
+            throw new DomainException("Page must be >= 1.");
+        if (pageSize < 1)
+            throw new DomainException("PageSize must be >= 1.");
+        if (pageSize > MaxPageSize)
+            throw new DomainException($"PageSize cannot exceed {MaxPageSize}.");
+    }
+
     [HttpGet]
-    public async Task<IActionResult> GetContents([FromQuery] Guid? parentId, [FromQuery] int page = 1, [FromQuery] int pageSize = 50)
-        => Ok(await folders.GetContentsAsync(UserId, parentId, page, pageSize));
+    public async Task<IActionResult> GetContents(
+        [FromQuery] Guid? parentId, 
+        [FromQuery] int page = 1, 
+        [FromQuery] int pageSize = DefaultPageSize)
+    {
+        ValidatePagination(page, pageSize);
+        return Ok(await folders.GetContentsAsync(UserId, parentId, page, pageSize));
+    }
 
     [HttpGet("{id:guid}")]
     public async Task<IActionResult> GetById(Guid id)

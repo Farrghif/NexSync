@@ -1,4 +1,4 @@
-import { api, setAccessToken, newOperationId } from "./client";
+import { api, setAccessToken, setCsrfToken, newOperationId } from "./client";
 
 export interface User {
   id: string;
@@ -8,6 +8,7 @@ export interface User {
 
 interface AuthPayload {
   accessToken: string;
+  csrfToken: string;
   user: User;
 }
 
@@ -81,25 +82,36 @@ export async function enrollNewDevice(userId: string): Promise<string> {
 
 export async function login(email: string, password: string): Promise<User> {
   const res = await api.post<AuthPayload>("/auth/login", { email, password });
-  setAccessToken(res.data.accessToken);
-  sessionStorage.setItem("nexsync:userId", res.data.user.id);
-  await ensureWebDevice(res.data.user.id);
-  return res.data.user;
+  
+  const { accessToken, csrfToken, user } = res.data;
+  setAccessToken(accessToken);
+  setCsrfToken(csrfToken);
+  
+  sessionStorage.setItem("nexsync:userId", user.id);
+  
+  await ensureWebDevice(user.id);
+  return user;
 }
 
 export async function register(email: string, password: string, fullName: string): Promise<User> {
   const res = await api.post<AuthPayload>("/auth/register", { email, password, fullName });
-  setAccessToken(res.data.accessToken);
-  sessionStorage.setItem("nexsync:userId", res.data.user.id);
-  await ensureWebDevice(res.data.user.id);
-  return res.data.user;
+  
+  const { accessToken, csrfToken, user } = res.data;
+  setAccessToken(accessToken);
+  setCsrfToken(csrfToken);
+  
+  sessionStorage.setItem("nexsync:userId", user.id);
+  
+  await ensureWebDevice(user.id);
+  return user;
 }
 
 export async function logout(): Promise<void> {
   try {
-    await api.post("/auth/logout", {}, { headers: { "X-CSRF": "1" } });
+    await api.post("/auth/logout", {});
   } finally {
     setAccessToken(null);
+    setCsrfToken(null);
     sessionStorage.removeItem("nexsync:userId");
     sessionStorage.removeItem("nexsync:user");
   }
