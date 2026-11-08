@@ -1,0 +1,29 @@
+# Gradle
+.gradle/
+build/
+gradle.properties.local
+
+# Build artifacts
+*.apk
+*.aab
+*.aar
+
+# Android Studio
+.idea/
+.DS_Store
+*.iml
+*.iws
+*.ipr
+local.properties
+
+# Kotlin
+*.class
+*.jar
+
+# IDE
+.vscode/
+.classpath
+.project
+.settings/
+*.sublime-workspace
+*.sublime-project
