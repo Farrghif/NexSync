@@ -1,18 +1,21 @@
 # Architecture Decision Record: Android Remote Access Strategy
 
 **Date:** 2026-11-08  
-**Status:** PENDING DECISION  
+**Status:** PROPOSED — PENDING OWNER APPROVAL  
 **Scope:** NexSync Storage Node v1.0 Remote Access Architecture  
 **Affected Component:** Backend relay, device communication, network traversal  
+**Recommendation:** Backend Relay (Approach A) — fastest to MVP  
+**Implementation Authorization:** NOT GRANTED — awaiting owner decision  
+**Implementation Status:** NOT STARTED  
 
 ---
 
 ## DECISION CONTEXT
 
-NexSync Storage Node currently supports:
-- ✅ Local SAF file access (same device)
-- ✅ Local HTTP API (loopback)
-- ✅ Embedded Ktor server (port-based communication)
+NexSync Storage Node current state:
+- ✅ Local SAF file access (same device) — IMPLEMENTED
+- ❌ Local HTTP API (loopback) — NOT IMPLEMENTED
+- ❌ Embedded Ktor server (port-based communication) — PLANNED for Sprint 3B-3F
 
 **Missing:** Cross-network communication between Storage Node and other NexSync clients (Desktop, Web, Mobile MAUI).
 
@@ -240,17 +243,23 @@ Storage Node     Desktop        Web (WebRTC)
 
 ## RECOMMENDATION
 
-**Phase 1 (Sprint 4-5): Backend Relay (Primary)**
+**Phase 1 (Sprint 3B-3F): Ktor Engine & API Routes (PREREQUISITE)**
+- Implement Ktor server engine, lifecycle, and API routes
+- Implement streaming support and security middleware
+- Integration tests must pass before Backend Relay
+
+**Phase 2 (Sprint 4, conditional on owner approval and API spec): Backend Relay Integration**
 - Rationale: Fastest to MVP, reuses existing Backend, simplest client logic
-- Risk: Backend infrastructure cost (mitigated by caching, CDN, smart buffering)
+- Prerequisite: Owner approval AND complete API specification
+- Prerequisite: Ktor server fully implemented
 - Path: Extend NexSync.API with `/sync/file-relay` endpoint
 
-**Phase 2 (Sprint 6+): Direct LAN Optimization**
+**Phase 3 (Sprint 6+): Direct LAN Optimization**
 - Rationale: mDNS local discovery + direct connect when same LAN
 - Benefit: Fast local transfers without Backend relay
 - Fallback: Still uses Backend for WAN clients
 
-**Phase 3 (Sprint 7+): Optional VPN/P2P**
+**Phase 4 (Sprint 7+): Optional VPN/P2P**
 - Rationale: Advanced users who want full control or self-hosting
 - Not required for v1.0
 
@@ -258,19 +267,40 @@ Storage Node     Desktop        Web (WebRTC)
 
 ## DECISION
 
-**Selected Approach:** Backend Relay (Approach A)
+**Selected Approach:** Backend Relay (Approach A) — RECOMMENDATION ONLY
 
-**Rationale:**
-1. ✅ MVP fastest (v1.0 target)
-2. ✅ Reuses existing Backend infrastructure
-3. ✅ Simplest client integration
-4. ✅ Most reliable (no NAT surprises)
-5. ✅ Scalable (backend can cache, deduplicate)
+**Status:** PROPOSED to owner for approval
 
-**Constraints:**
+**Rationale if approved:**
+1. MVP fastest (v1.0 target)
+2. Reuses existing Backend infrastructure
+3. Simplest client integration
+4. Most reliable (no NAT surprises)
+5. Scalable (backend can cache, deduplicate)
+
+**Unresolved Design Questions (Must be answered before Sprint 4):**
+
+**Control Plane:**
+- [ ] Storage Node authentication to Backend (service account? OAuth? mTLS?)
+- [ ] Heartbeat mechanism and reconnection strategy
+- [ ] Job dispatch protocol (how Backend tells Storage Node about relay requests)
+- [ ] Connection lifecycle management
+- [ ] Device revocation procedure
+
+**Data Plane:**
+- [ ] File relay endpoint specification (`POST /sync/file-relay`)
+- [ ] Streaming vs buffering strategy (cannot buffer 100MB files in memory)
+- [ ] Quota management (per Storage Node, per user)
+- [ ] Temporary data expiration and cleanup
+- [ ] Error handling (Storage Node offline, file moved, permission revoked)
+- [ ] Cancellation and retry logic
+- [ ] Hash verification and integrity validation
+
+**Constraints (if approved):**
 - Backend must handle file relay efficiently (streaming, not buffering entire file)
-- Storage Node must authenticate to Backend (OAuth or service account)
+- Storage Node must authenticate to Backend securely
 - Clients must trust Backend as file provider
+- API specification must be approved before implementation starts
 
 **Future Optimization:**
 - Sprint 6+: Add LAN discovery (mDNS) for local-only transfers
@@ -280,15 +310,20 @@ Storage Node     Desktop        Web (WebRTC)
 
 ## IMPLEMENTATION ROADMAP
 
-| Sprint | Task | Ownership |
-|--------|------|-----------|
-| Sprint 4 | Backend `/sync/file-relay` API | Backend team |
-| Sprint 4 | Storage Node outbound sync client | Android team |
-| Sprint 5 | Desktop/Web relay client integration | Desktop/Web team |
-| Sprint 6 | Local LAN optimization (mDNS) | Android team |
-| Sprint 7+ | Optional VPN/P2P (backlog) | TBD |
+| Sprint | Task | Status | Ownership | Prerequisite |
+|--------|------|--------|-----------|---|
+| 3B | Ktor engine + lifecycle | PLANNED | Android | Owner approval of ADR |
+| 3C | API routes + streaming | PLANNED | Android | 3B complete |
+| 3D | Security middleware | PLANNED | Android | 3C complete |
+| 3E | Integration tests | PLANNED | Android | 3D complete |
+| 3F | Server UI integration | PLANNED | Android | 3E complete |
+| 4 | Backend `/sync/file-relay` API | PLANNED | Backend | Owner approval + API spec complete |
+| 4 | Storage Node outbound sync client | PLANNED | Android | Backend API spec complete |
+| 5 | Desktop/Web relay client integration | PLANNED | Desktop/Web | Sprint 4 complete |
+| 6 | Local LAN optimization (mDNS) | PLANNED | Android | Sprint 4 complete |
+| 7+ | Optional VPN/P2P (backlog) | BACKLOG | TBD | Not required for v1.0 |
 
 ---
 
-**ADR Status:** APPROVED (Backend Relay)  
-**Next Action:** Detailed API spec for `/sync/file-relay` endpoint
+**ADR Status:** PROPOSED — PENDING OWNER APPROVAL  
+**Next Action:** Owner reviews recommendation. If approved: Backend team produces detailed API specification for `/sync/file-relay` endpoint before Sprint 4 kickoff.

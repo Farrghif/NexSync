@@ -114,32 +114,85 @@ override suspend fun writeFileStream(
 
 ## CRITICAL FAILURE SCENARIO ANALYSIS
 
-### Scenario 1: Rename Fails After Delete (MOST LIKELY)
+### Return-Value Handling Defect (Silent Failure)
 
-**Execution Sequence:**
+AndroidX `DocumentFile.delete()` and `DocumentFile.renameTo()` return `Boolean`.
+Ordinary failures do **NOT** throw `IOException`.
 
-```
-1. tempFile written successfully
-2. Hash verified
-3. file.delete() executes
-   → SUCCESS: Original file deleted from filesystem
-4. tempFile.renameTo() called
-   → FAILS: Returns false or throws exception
-     - Reason could be:
-       * Permission denied (permissions changed between operations)
-       * Provider error (provider becomes unavailable)
-       * Filesystem full (unexpected)
-       * Race condition (another process renamed file)
-       * SAF provider bug or unexpected behavior
-5. Exception caught in line 604 (IOException)
-6. Catch block tries to delete tempUri
-   → Deletes temp file (now useless)
-7. Returns ERROR to caller
-8. RESULT: Original file DELETED, temp file also DELETED
-   → DATA LOSS ❌
+**Actual Code (SafStorageAdapter.kt lines 591-594):**
+```kotlin
+file.delete()                                // Returns Boolean, result ignored
+tempFile.renameTo(file.name ?: "file")     // Returns Boolean, result ignored
+tempUri = null
+
+progressListener?.onComplete()
 ```
 
-**Who is affected?** ANY Android version (21+), ANY SAF provider (Google Drive, OneDrive, local).
+**Silent Failure Path:**
+1. `file.delete()` returns `true` (original file deleted)
+2. `tempFile.renameTo()` returns `false` (rename failed, no exception)
+3. `tempUri` set to `null` (reference lost)
+4. `progressListener?.onComplete()` called
+5. Method returns `StorageOperationResult.Success` with hash!
+6. **Result:** Caller believes write succeeded. Original file is GONE. Temp file is orphaned. Total data loss with false SUCCESS.
+
+### Output Stream Null Handling Defect
+
+**Actual Code (SafStorageAdapter.kt line 578):**
+```kotlin
+contentResolver.openOutputStream(tempUri)?.use { outputStream ->
+    // write chunks
+}
+```
+
+If `openOutputStream()` returns `null` (provider crashed, permission issue, storage unmounted):
+1. Safe call `?.` skips entire block silently
+2. `transferredBytes` remains 0
+3. `hashDigest` is empty
+4. Code proceeds to `file.delete()` — deletes original file!
+5. `tempFile.renameTo()` promotes an EMPTY temporary file
+6. **Result:** Original file replaced with empty 0-byte file without error!
+
+### Parent URI and DocumentFile Wrapper Defect
+
+**Actual Code (SafStorageAdapter.kt line 571):**
+```kotlin
+val tempFile = createTempFile(file.parentFile?.uri.toString(), file.name ?: "temp")
+```
+
+`file` was created via `DocumentFile.fromSingleUri(context, uri)`.
+Per AndroidX implementation, `SingleDocumentFile.getParentFile()` always returns `null`.
+Therefore `file.parentFile?.uri.toString()` evaluates to the string `"null"`.
+
+`createTempFile()` receives `"null"` as `parentUri`:
+```kotlin
+val parent = if (parentUri.isEmpty()) {
+    rootDocumentFile
+} else {
+    DocumentFile.fromTreeUri(context, Uri.parse(parentUri))  // Uri.parse("null")!
+}
+```
+`Uri.parse("null")` creates an invalid URI. `fromTreeUri()` returns `null`.
+`parent?.createFile()` fails, returning `null`.
+`createTempFile()` returns `null`, method exits at line 572 before write.
+**Finding:** If `file.parentFile` is null, write fails immediately with "Failed to create temporary file".
+
+### Hash Integrity Verification Claim is False
+
+**Actual Code (SafStorageAdapter.kt lines 598-603):**
+```kotlin
+val computedHash = hashDigest.digest().joinToString("") { "%02x".format(it) }
+StorageOperationResult.Success(HashVerificationResult(
+    computedHash = computedHash,
+    expectedHash = "",
+    isValid = true
+))
+```
+
+- `expectedHash` is hardcoded empty string `""`
+- `isValid` is hardcoded `true`
+- **No comparison is ever performed** against an expected value
+- This is hash *calculation*, NOT hash *verification* or integrity checking.
 
 ---
 
@@ -388,59 +441,32 @@ originalFile.delete()  // Original is gone, but new version exists
 
 ## PROPOSED SOLUTIONS
 
-### Solution A: Versioned Files (RECOMMENDED FOR SAF)
+## PROPOSED CANDIDATE ARCHITECTURE (EVALUATION ONLY)
 
-**Design:** Keep old version until new version proven and promoted.
+### Why "Versioned Files + renameTo()" is NOT Universal
 
-**Implementation:**
-```kotlin
-suspend fun writeFileStreamSafe(
-    fileUri: String,
-    inputStream: suspend () -> ByteArray?,
-    totalSizeBytes: Long,
-    expectedHash: String?,
-    progressListener: TransferProgressListener?
-): StorageOperationResult<HashVerificationResult> {
-    val originalFile = DocumentFile.fromSingleUri(context, Uri.parse(fileUri))
-    val versionedName = "${originalFile.name}.new-${System.currentTimeMillis()}"
-    
-    // Step 1: Write to versioned temp file
-    val versionedFile = createTempFile(parentUri, versionedName) ?: return ERROR
-    val computedHash = writeToFile(versionedFile, inputStream, progressListener)
-    
-    // Step 2: Verify hash
-    if (expectedHash != null && computedHash != expectedHash) {
-        versionedFile.delete()  // Clean up bad version
-        return ERROR
-    }
-    
-    // Step 3: Attempt rename (single atomic operation at SAF level)
-    val renameSuccess = versionedFile.renameTo(originalFile.name)
-    if (!renameSuccess) {
-        versionedFile.delete()  // Clean up renamed version
-        return ERROR  // Original file untouched
-    }
-    
-    // Step 4: Clean up old version (optional, deferred if fails)
-    try {
-        originalFile.delete()  // Try to remove old, but don't fail operation
-    } catch (e: Exception) {
-        Timber.w("Could not delete old version, will clean up later")
-    }
-    
-    return SUCCESS
-}
-```
+The earlier recommendation to simply `renameTo()` a versioned file has known limits:
+1. `renameTo()` may create a **new document** with a different URI on some DocumentProviders
+2. `renameTo()` may change the MIME type
+3. On duplicate names, behavior varies: some providers overwrite, some append "(1)", some fail
+4. It is **NOT guaranteed atomic** by the DocumentProvider contract
 
-**Advantages:**
-- ✅ Original never deleted until rename succeeds
-- ✅ Always at least one version available
-- ✅ Can clean up old version asynchronously
-- ✅ Data loss nearly impossible
+### Safer Candidate: Immutable Versioned Objects with Metadata Pointer
 
-**Disadvantages:**
-- ⏳ Storage overhead (two versions temporarily)
-- ⏳ Cleanup needed for orphaned old versions
+A safer architectural direction to evaluate:
+1. **Write new version with unique identity:** e.g., `document.pdf.v{uuid}`
+2. **Verify written content:** check byte count matches `totalSizeBytes`, compare SHA-256 against expected hash
+3. **Verify output stream was non-null and closed properly**
+4. **Update active reference in database transaction:** point application metadata to the new object URI
+5. **Retain previous version:** keep old file until new version confirmed healthy and sync confirmed
+6. **Async cleanup:** garbage collect orphaned/abandoned versions on a defined retention policy
+
+**Key Distinction:** Database pointer update is ATOMIC. SAF file operations are NOT.
+By separating the two, data loss becomes virtually impossible even if a provider operation fails.
+
+**Trade-off:** Conventional file managers will see versioned filenames unless the provider supports a proven atomic replace. This requires user/product decision.
+
+*Note: No implementation changes are authorized in this phase.*
 
 ---
 

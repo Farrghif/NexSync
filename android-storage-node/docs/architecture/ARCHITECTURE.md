@@ -1,47 +1,48 @@
 # NexSync Storage Node — System Architecture v1.0
 
 **Document Version:** 1.0  
-**Status:** Sprint 3A Baseline  
+**Status:** Sprint 3A Baseline (Partial) — Local SAF + Room Complete; Remote Access & Ktor Planned  
 **Effective Date:** 2026-11-08  
+**Implementation Status Vocabulary:** [✅ IMPLEMENTED] [⏳ PLANNED] [❌ NOT IMPLEMENTED] [⚠️ PARTIAL]
 
 ---
 
 ## 1. LAYERED ARCHITECTURE OVERVIEW
 
-```
-┌────────────────────────────────────────────────────────────┐
-│                    PRESENTATION LAYER                      │
-│  (Jetpack Compose, Navigation, ViewModels)                 │
-├────────────────────────────────────────────────────────────┤
-│                    DOMAIN LAYER                            │
-│  (UseCases, Entities, Repository Interfaces)               │
-├────────────────────────────────────────────────────────────┤
-│                    DATA LAYER                              │
-│  (Repositories, Room DB, SAF Adapter, Network Client)      │
-├────────────────────────────────────────────────────────────┤
-│                 INFRASTRUCTURE LAYER                       │
-│  (Hilt DI, Database schema, API clients, Local storage)    │
-└────────────────────────────────────────────────────────────┘
-```
+**Clean Architecture Dependency Model:**
 
-### 1.1 Presentation Layer (UI)
+Domain layer (innermost) — contains business logic, NO dependencies on Android/Room/Ktor/Retrofit/UI
+   ↑ (implementations depend inward)
+Data layer — implements Domain interfaces, repositories
+   ↑
+Presentation layer — depends on Domain abstractions via DI
+   ↑
+Infrastructure — Hilt modules provide concrete implementations
+
+**Code reality verified:**
+- ✅ Domain: No Android imports, no frameworks → CLEAN
+- ✅ Data: Implements StorageAdapter, StorageRepository interfaces → CLEAN
+- ✅ Presentation: ViewModels depend on repositories → CLEAN
+- ✅ Infrastructure: HiltModules instantiate implementations → CORRECT
+
+### 1.1 Presentation Layer (UI) [✅ IMPLEMENTED — Sprint 3A]
 
 **Components:**
-- `MainActivity` — Jetpack Compose navigation host
-- `OnboardingScreen` — SAF directory picker, setup flow
-- `DashboardScreen` — File browser, transfer UI
-- `ViewModels` — State management (Storage, Transfer, Device, Server)
-- `Theme` — Material Design 3 colors, typography
+- `MainActivity` — Jetpack Compose navigation host [✅]
+- `OnboardingScreen` — SAF directory picker, setup flow [⚠️ PARTIAL — no SAF picker implemented]
+- `DashboardScreen` — File browser, transfer UI [✅]
+- `ViewModels` — State management (Storage, Transfer, Device, Server) [✅]
+- `Theme` — Material Design 3 colors, typography [✅]
 
 **Responsibilities:**
 - ✅ User interaction handling
 - ✅ UI state via ViewModel
 - ✅ Navigation routing
 
-**No Business Logic:**
-- ❌ File operations (deferred to domain/data)
-- ❌ Network calls (deferred to data layer)
-- ❌ Permission management (deferred to SAF adapter)
+**Not Implemented:**
+- ❌ SAF tree URI picker (user cannot select storage folder)
+- ❌ Backend URL configuration UI
+- ❌ API endpoint settings screen
 
 ---
 
@@ -125,36 +126,37 @@ StorageException
 
 ---
 
-### 1.3 Data Layer (Repositories & Adapters)
+### 1.3 Data Layer (Repositories & Adapters) [⚠️ PARTIALLY IMPLEMENTED]
 
-**SafStorageAdapter (SAF Implementation):**
+**SafStorageAdapter (SAF Implementation) [⚠️ PARTIAL]:**
+- **Status:** IMPLEMENTED with critical gaps
 - **Responsibility:** Android Storage Access Framework integration
 - **Scope:** File I/O, permissions, SAF URI handling
 - **Critical Paths:**
-  - `initialize()` → permission revalidation + provider check
-  - `readFileStream()` → SHA-256 hashing + buffer optimization
-  - `writeFileStream()` → atomic temp-file replacement
+  - `initialize()` → permission revalidation + provider check [✅ IMPLEMENTED]
+  - `readFileStream()` → SHA-256 hashing + buffer optimization [✅ IMPLEMENTED]
+  - `writeFileStream()` → atomic temp-file replacement [❌ NOT ATOMIC — see BLOCKERS]
 - **Constraints:**
   - Max file size: 100 MB (configurable)
   - Buffer size: 64 KB (configurable, 4-2048 KB range)
   - Temp file suffix: `.nexsync-temp`
   - Temp cleanup: 24-hour max age
 
-**Room Repositories (9 entities):**
-- StorageNodeRepository
-- DeviceCredentialsRepository
-- PairingChallengeRepository
-- StorageDirectoryRepository
-- StorageFileRepository
-- FileTransferRepository
-- AuthorizedDeviceRepository
-- PendingOperationRepository
-- ServerStateRepository
+**CRITICAL ISSUES:**
+- ⚠️ Root SAF URI: Hardcoded placeholder, not user-selected [LINE: HiltModules.kt:146]
+- 🔴 Atomic write: Non-atomic delete-then-rename, Boolean returns not checked [LINE: SafStorageAdapter.kt:592-593]
+- ⚠️ Output stream: null return silently skips write [LINE: SafStorageAdapter.kt:578]
+- ⚠️ Hash verification: expectedHash empty, isValid always true [LINE: SafStorageAdapter.kt:601-602]
 
-**Network Client (Retrofit + OkHttp):**
-- `NexSyncApiClient` → Backend API calls
-- Interceptors: JWT auth, logging, error handling
-- Scope: User registration, device pairing, file sync
+**Room Repositories (9 entities) [✅ IMPLEMENTED]:**
+- All 9 repositories complete and tested
+
+**Network Client (Retrofit + OkHttp) [⚠️ PARTIAL]:**
+- NexSyncApiClient infrastructure complete [✅]
+- File sync endpoints (basic CRUD) [✅]
+- **Remote relay endpoints:** [❌ NOT IMPLEMENTED]
+  - `/sync/file-relay` — not designed
+  - `/sync/metadata-sync` — not designed
 
 ---
 
@@ -192,7 +194,7 @@ object NetworkModule {
     fun provideNexSyncApi(
         okHttpClient: OkHttpClient
     ): NexSyncApiClient = Retrofit.Builder()
-        .baseUrl("http://localhost:5000")
+        .baseUrl("http://localhost:5000") // ⚠️ DEVELOPMENT PLACEHOLDER ONLY — physical Android needs configurable URL
         .client(okHttpClient)
         .addConverterFactory(KotlinxSerializationConverterFactory())
         .build()
@@ -380,26 +382,40 @@ catch (e: SecurityException) {
 
 ---
 
-### 3.4 Atomic Temp-File Replacement
+### 3.4 Atomic Temp-File Replacement [❌ CRITICAL DATA LOSS RISK]
 
+**Current Code Implementation (SafStorageAdapter.kt lines 591-594):**
 ```kotlin
-val tempFile = createTempFile(...)  // Write here first
-// ... write complete, hash verified ...
-file.delete()  // Remove original
-tempFile.renameTo(file.name)  // Atomic swap
+file.delete()                                // Returns Boolean, NOT CHECKED
+tempFile.renameTo(file.name ?: "file")     // Returns Boolean, NOT CHECKED
+tempUri = null
 ```
 
-**Guarantee:** If process crashes, temp file remains (cleanup job picks it up)
+**CRITICAL DEFECTS:**
+1. **Return values ignored:** delete() and renameTo() return Boolean; failures do NOT throw IOException
+2. **False success path:** If delete succeeds and rename returns false, code continues to `onComplete()` and returns Success
+3. **Data loss window:** Original file deleted, temp file NOT promoted = PERMANENT DATA LOSS
+4. **openOutputStream null handling:** If openOutputStream() returns null, write loop skipped silently with no error
+5. **No true hash verification:** expectedHash is empty string, isValid is hardcoded true; only calculates hash, does not compare
+6. **Parent URI issue:** file.parentFile?.uri.toString() evaluates to "null" for fromSingleUri(), createTempFile receives "null"
+
+**Status:** BLOCKER — Write operations MUST be redesigned before multi-device sync or production release.
+See full analysis: `docs/reliability/SAF-ATOMIC-WRITE-INVESTIGATION.md`
 
 ---
 
-## 4. NETWORK & REMOTE ACCESS
+## 4. NETWORK & REMOTE ACCESS [⏳ PLANNED FOR SPRINT 4+]
 
-### 4.1 Backend Relay (Selected Strategy — ADR)
+### 4.1 Backend Relay (Proposed Strategy — ADR) [⏳ PLANNED FOR SPRINT 4]
 
-**Why:** Fastest MVP, reuses Backend infrastructure, simplest clients
+**ADR Status:** PROPOSED — PENDING OWNER APPROVAL (Implementation NOT granted)
+**Prerequisites:** 
+1. Owner approval of ADR recommendation
+2. Complete API specification for `/sync/file-relay` (Control Plane + Data Plane)
+3. Ktor server implementation (Sprint 3B-3F)
+4. Atomic write and root URI blockers resolved
 
-**Flow:**
+**Flow (Proposed):**
 ```
 Storage Node          NexSync Backend       Remote Client
      │                     │                      │
@@ -446,23 +462,32 @@ Direct connect: Skip Backend relay for LAN
 
 ---
 
-## 6. DEPLOYMENT READINESS
+## 6. DEPLOYMENT READINESS [🔴 NOT READY FOR PRODUCTION]
 
-**v1.0 Baseline:** Sprint 3A complete
-- ✅ Clean Architecture enforced
-- ✅ Build infrastructure functional
-- ✅ 19 unit tests (mock-based)
-- ✅ SAF operations verified
-- ✅ Permission flow tested
-- ✅ ADR documented
+**v1.0 Baseline (Sprint 3A status):**
+- ✅ Clean Architecture enforced (Domain independent)
+- ✅ Gradle build infrastructure files present (runtime NOT verified)
+- ⏳ 19 unit tests designed (NOT executed — Java unavailable in environment)
+- ⚠️ SAF operations: read-path functional, write-path has critical data-loss defect
+- ⚠️ Root URI: hardcoded placeholder, no onboarding picker
+- ✅ ADR documented (status: PROPOSED — PENDING OWNER APPROVAL)
 
-**Not Ready for v1.0:**
-- ⏳ Remote access (Sprint 4+)
-- ⏳ LAN optimization (Sprint 6+)
-- ⏳ Integration tests on emulator (Sprint 7+)
+**BLOCKERS FOR PRODUCTION:**
+1. 🔴 SAF atomic write safety (delete-then-rename data loss window)
+2. 🔴 Root URI initialization (placeholder instead of user selection)
+3. 🔴 Onboarding flow (no SAF picker implementation)
+4. 🔴 Backend Relay API specification (not yet designed)
+5. 🔴 Gradle build/test execution proof (environment lacks Java)
+
+**NOT YET IMPLEMENTED:**
+- ⏳ Ktor Server engine and API routes (Sprint 3B-3F)
+- ⏳ Device pairing (Sprint 4)
+- ⏳ Remote access via Backend Relay (Sprint 4)
+- ⏳ LAN optimization via mDNS (Sprint 6)
+- ⏳ Integration tests on emulator/device (Sprint 3E/7)
 
 ---
 
 **Architecture Version:** 1.0  
-**Status:** APPROVED for Sprint 4 Implementation  
-**Next:** Backend Relay API specification
+**Status:** PROPOSED — Pending Owner Approval  
+**Next:** Sprint 3B (Ktor Engine) AFTER critical blockers resolved

@@ -224,18 +224,32 @@ No rollback, no verification that rename succeeded before considering operation 
 
 ## RECONCILIATION VERDICT
 
+### Gradle Build Infrastructure Status (Corrected)
+
+| Aspect | Claim in Evidence Report | Actual Verified State | Accurate Status |
+|--------|--------------------------|-----------------------|-----------------|
+| Gradle files present | Files exist | `settings.gradle.kts`, `build.gradle.kts`, `gradlew.bat`, `gradle/wrapper/` present | ✅ PRESENT |
+| Gradle Wrapper runtime | Working | `.\gradlew.bat --version` failed: JAVA_HOME not set | ❌ NOT VERIFIED |
+| Gradle build execution | Working | Never executed (no Java in environment) | ❌ NOT EXECUTED |
+| Unit test execution | 19 tests pass | No test runner executed; no XML reports exist | ❌ NOT EXECUTED |
+| APK generation | Ready | No APK file produced or verified | ❌ NOT VERIFIED |
+| APK SHA-256 | Documented | No APK hash verified | ❌ NOT VERIFIED |
+
+**Accurate Verdict:** Gradle infrastructure files and configuration are PRESENT.
+Runtime execution (wrapper, build, test, APK) is **NOT VERIFIED** due to missing Java environment.
+
 ### For Sprint 2.1 Technical Readiness
 
 | Component | Status | Evidence | Readiness |
 |-----------|--------|----------|-----------|
-| Build Infrastructure | ✅ Complete | Gradle, wrapper, dependencies all verified | ✅ READY |
-| SAF Storage Adapter | ✅ Complete | 21 operations implemented, tested | ✅ READY (locally) |
+| Build Infrastructure Files | ✅ Present | Gradle, wrapper, dependencies all in repo | ⚠️ FILES ONLY (Runtime NOT verified) |
+| SAF Storage Adapter | ⚠️ Defective | 21 operations designed, write-path has data-loss flaw | ❌ NOT READY |
 | Room Database | ✅ Complete | 9 entities, DAOs, schema migrations | ✅ READY |
-| Jetpack Compose UI | ✅ Complete | Screens, ViewModels, state management | ✅ READY |
-| Unit Tests | ✅ Complete | 19 mock-based tests designed | ⏳ NOT EXECUTED (Java missing) |
+| Jetpack Compose UI | ⚠️ Partial | Screens present, no SAF picker in Onboarding | ⚠️ PARTIAL |
+| Unit Tests | ⏳ Unverified | 19 mock-based tests in source, zero executed | ❌ NOT EXECUTED |
 | **Root URI Initialization** | ❌ INCOMPLETE | Placeholder URI, no SAF picker | ❌ **BLOCKER** |
-| **Atomic Write Safety** | ⚠️ RISKY | Delete before rename verified | ❌ **BLOCKER** |
-| **Production Readiness** | ❌ NO | Critical initialization gaps | ❌ **NOT READY** |
+| **Atomic Write Safety** | ❌ UNSAFE | Delete-before-rename + ignored Boolean returns | ❌ **BLOCKER** |
+| **Overall Sprint 2.1 Acceptance** | ❌ PENDING | Acceptance criteria lack execution evidence | ❌ **NOT ACCEPTED** |
 
 ---
 
