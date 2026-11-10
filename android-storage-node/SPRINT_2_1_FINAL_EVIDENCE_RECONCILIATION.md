@@ -227,79 +227,89 @@ No rollback, no verification that rename succeeded before considering operation 
 ### Gradle Build Infrastructure Status (Corrected)
 
 | Aspect | Claim in Evidence Report | Actual Verified State | Accurate Status |
-|--------|--------------------------|-----------------------|-----------------|
-| Gradle files present | Files exist | `settings.gradle.kts`, `build.gradle.kts`, `gradlew.bat`, `gradle/wrapper/` present | ✅ PRESENT |
-| Gradle Wrapper runtime | Working | `.\gradlew.bat --version` failed: JAVA_HOME not set | ❌ NOT VERIFIED |
-| Gradle build execution | Working | Never executed (no Java in environment) | ❌ NOT EXECUTED |
-| Unit test execution | 19 tests pass | No test runner executed; no XML reports exist | ❌ NOT EXECUTED |
-| APK generation | Ready | No APK file produced or verified | ❌ NOT VERIFIED |
-| APK SHA-256 | Documented | No APK hash verified | ❌ NOT VERIFIED |
+|---|---|---|---|
+| Gradle files/configuration | Files exist | `settings.gradle.kts`, `build.gradle.kts`, `gradlew.bat`, `gradle/wrapper/` present | `PRESENT` |
+| Gradle Wrapper runtime | Working | `.\gradlew.bat --version` failed: `JAVA_HOME is not set and no 'java' command could be found in your PATH` | `NOT VERIFIED` |
+| Gradle build execution | Working | Never executed (no JDK in environment) | `NOT EXECUTED` |
+| Unit test execution | 19 tests pass | No test runner executed; zero XML reports generated or present | `NOT EXECUTED` |
+| APK generation | Ready | No APK file produced or verified | `NOT VERIFIED` |
+| APK SHA-256 | Documented | No APK hash verified | `NOT VERIFIED` |
 
-**Accurate Verdict:** Gradle infrastructure files and configuration are PRESENT.
-Runtime execution (wrapper, build, test, APK) is **NOT VERIFIED** due to missing Java environment.
+**Accurate Infrastructure Verdict:**
+- Gradle files/configuration: `PRESENT`
+- Wrapper runtime: `NOT VERIFIED`
+- Gradle build: `NOT EXECUTED`
+- Unit tests: `NOT EXECUTED`
+- APK: `NOT VERIFIED`
 
-### For Sprint 2.1 Technical Readiness
+Runtime execution (wrapper, build, test, APK) is **NOT VERIFIED** due to missing Java environment. Claiming that Gradle infrastructure is "verified" or "working" when the wrapper exited with code 1 is factually inaccurate.
+
+---
+
+### Sprint 2.1 Technical Readiness Assessment
 
 | Component | Status | Evidence | Readiness |
-|-----------|--------|----------|-----------|
-| Build Infrastructure Files | ✅ Present | Gradle, wrapper, dependencies all in repo | ⚠️ FILES ONLY (Runtime NOT verified) |
-| SAF Storage Adapter | ⚠️ Defective | 21 operations designed, write-path has data-loss flaw | ❌ NOT READY |
-| Room Database | ✅ Complete | 9 entities, DAOs, schema migrations | ✅ READY |
-| Jetpack Compose UI | ⚠️ Partial | Screens present, no SAF picker in Onboarding | ⚠️ PARTIAL |
-| Unit Tests | ⏳ Unverified | 19 mock-based tests in source, zero executed | ❌ NOT EXECUTED |
-| **Root URI Initialization** | ❌ INCOMPLETE | Placeholder URI, no SAF picker | ❌ **BLOCKER** |
-| **Atomic Write Safety** | ❌ UNSAFE | Delete-before-rename + ignored Boolean returns | ❌ **BLOCKER** |
-| **Overall Sprint 2.1 Acceptance** | ❌ PENDING | Acceptance criteria lack execution evidence | ❌ **NOT ACCEPTED** |
+|---|---|---|---|
+| Build Infrastructure Files | `PRESENT` | Gradle scripts, wrapper, dependencies present in repo | Files present; Runtime `NOT VERIFIED` |
+| SAF Storage Adapter | `DEFECTIVE` | 21 operations declared in interface; write-path has critical data-loss defect | `NOT READY` |
+| Room Database | `IMPLEMENTED` | 9 entities, DAOs, and schema migrations present | Source inspection verified; Runtime `NOT VERIFIED` |
+| Jetpack Compose UI | `PARTIAL` | Screens present; onboarding lacks SAF tree picker | `PARTIAL` |
+| Unit Tests | `NOT EXECUTED` | 19 mock-based tests exist in source files; 0 executed; no test runner reports | `NOT VERIFIED` |
+| **Root URI Initialization** | `NOT IMPLEMENTED` | Hardcoded placeholder URI; no dynamic picker or persistence | 🔴 **BLOCKER** |
+| **Atomic Write Safety** | `UNSAFE` | Delete-before-rename creates data loss window; ignored Boolean returns; null output stream skipped | 🔴 **BLOCKER** |
+| **Overall Sprint 2.1 Acceptance** | `UNACCEPTED` | Acceptance criteria lack execution evidence | 🔴 **NOT ACCEPTED** |
+
+---
+
+### Test Execution & Methodology Distinction
+
+To ensure technical accuracy, this reconciliation enforces strict distinctions among test levels:
+1. **Source Inspection (Static Analysis):** Proves code and files exist in repository. (Confirmed for Room DAOs, Entities, and test files).
+2. **Mock-Based Unit Tests:** `SafStorageAdapterRegressionTest.kt` contains mock-based test logic for specific components, but these tests have **NOT BEEN EXECUTED** in this environment.
+3. **Instrumentation Tests:** Tests requiring Android runtime components (SAF ContentResolver, DocumentFile provider) have not been run.
+4. **Emulator Tests:** No emulator test run has been performed.
+5. **Physical Device Tests:** No physical device execution has taken place.
+
+No claim that "19 unit tests passed" or that "21 SAF operations were fully tested" can be accepted without execution artifacts (JUnit XML / test runner reports).
 
 ---
 
 ## RECONCILIATION RECOMMENDATIONS
 
-### Immediate Actions (Before Sprint 3B)
+### Immediate Actions (Prerequisites for Progress)
 
-1. **Fix Root URI Initialization** (CRITICAL BLOCKER)
-   - Implement SAF tree picker in OnboardingScreen
-   - Persist selected URI to DataStore
-   - Read from DataStore in HiltModules (not hardcoded placeholder)
-   - Validate URI on app startup
+1. **Fix Root URI Initialization (CRITICAL BLOCKER):**
+   - Implement SAF tree picker via `ActivityResultContracts.OpenDocumentTree` in `OnboardingScreen`.
+   - Call `takePersistableUriPermission()` with `FLAG_GRANT_READ_URI_PERMISSION` and `FLAG_GRANT_WRITE_URI_PERMISSION`.
+   - Persist selected URI to DataStore.
+   - Read dynamic URI from DataStore in `HiltModules.kt` instead of the hardcoded placeholder.
 
-2. **Redesign Atomic Write** (CRITICAL BLOCKER)
-   - Change delete-then-rename to rename-then-delete pattern
-   - OR: Keep versioned backups until new file verified
-   - Add pre-rename existence checks
-   - Test under various failure scenarios
+2. **Redesign Atomic Write Strategy (CRITICAL BLOCKER):**
+   - Replace delete-before-rename with an immutable versioned objects pattern using transactional database pointers in Room.
+   - Explicitly check `openOutputStream()` for null.
+   - Validate `transferredBytes == totalSizeBytes` and perform expected-hash comparison.
+   - Capture and handle Boolean return values of all SAF operations.
 
-3. **Verify Roadmap Alignment** (HIGH)
-   - ADR claims Ktor already implemented (contradicts source)
-   - Correct ADR to reflect actual status: PLANNED for Sprint 3B
-   - Align roadmap: Sprints 3B-3F for Ktor, not Sprint 4
-
-### Sprint 3B Prerequisites
-
-Before any Ktor server implementation:
-1. Root URI initialization must be fixed
-2. Atomic write safety must be guaranteed
-3. Unit tests must execute successfully
+3. **Align Documentation & ADR:**
+   - Correct ADR status to `PROPOSED — PENDING OWNER APPROVAL`.
+   - Ensure Ktor engine is scheduled for Sprint 3B-3F, while Backend Relay integration is placed under Sprint 4 conditional on owner approval.
 
 ---
 
 ## CONCLUSION
 
-**Sprint 2.1 Deliverables:**
-- ✅ Gradle infrastructure working
-- ✅ SAF operations fully designed and tested (mock-based)
-- ✅ Clean Architecture preserved
-- ✅ Database schema complete
+**Sprint 2.1 Verification Summary:**
+- Gradle configuration files: `PRESENT` (Runtime `NOT VERIFIED`)
+- SAF operations: Interface declared, but write-path contains critical non-atomic data-loss defect
+- Database schema: Implemented in source (Runtime `NOT VERIFIED`)
+- Test status: Mock test code written, but `NOT EXECUTED`
+- Root URI configuration: Broken (hardcoded placeholder, runtime permission failure)
 
-**Critical Gaps for Production:**
-- ❌ Root URI initialization broken (uses placeholder)
-- ❌ Atomic write not safe (data loss risk)
-- ❌ Onboarding flow incomplete (no SAF picker)
-- ❌ Ktor server not started (only dependencies)
+**Sprint 2.1 Technical Verdict:** 🔴 **UNACCEPTED**
+Sprint 2.1 cannot be accepted until root URI initialization and atomic write safety are remediated, and build/test execution proof is established on a supported runtime environment.
 
-**Overall Sprint 2.1 Status:** ✅ **DESIGN & TESTS COMPLETE** | ❌ **RUNTIME INITIALIZATION BROKEN**
-
-**Recommendation:** **Do NOT proceed to multi-device sync until root URI and atomic write issues are resolved.**
+**Sprint 3A Documentation Verdict:** 🟡 **COMPLETE WITH BLOCKERS IDENTIFIED**
+Source documentation has been genuinely corrected to reflect reality without overclaims. Implementation authorization for Sprint 3B remains blocked until critical SAF write-path and root URI defects are addressed.
 
 ---
 

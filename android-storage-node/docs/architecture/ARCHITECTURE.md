@@ -1,217 +1,117 @@
 # NexSync Storage Node — System Architecture v1.0
 
-**Document Version:** 1.0  
-**Status:** Sprint 3A Baseline (Partial) — Local SAF + Room Complete; Remote Access & Ktor Planned  
+**Document Version:** 1.0
+**Status:** Sprint 3A Baseline (Partial) — Local SAF & Room Implemented; Ktor & Remote Access Planned
 **Effective Date:** 2026-11-08  
-**Implementation Status Vocabulary:** [✅ IMPLEMENTED] [⏳ PLANNED] [❌ NOT IMPLEMENTED] [⚠️ PARTIAL]
+**Implementation Status Vocabulary:**
+- `IMPLEMENTED` — Code written and present in repository
+- `BUILD VERIFIED` — Build executed and verified with compiler proof
+- `TEST VERIFIED` — Tests executed with test runner and passing test report proof
+- `PARTIALLY IMPLEMENTED` — Partial implementation present with known gaps
+- `PLANNED` — Scheduled for future sprint in roadmap
+- `NOT IMPLEMENTED` — Required capability not yet written in code
+- `NOT VERIFIED` — Code exists but runtime/execution has not been verified
+- `BLOCKER` — Defect or missing prerequisite halting progress to next sprint
 
 ---
 
 ## 1. LAYERED ARCHITECTURE OVERVIEW
 
-**Clean Architecture Dependency Model:**
+### 1.1 Clean Architecture Dependency Model
 
-Domain layer (innermost) — contains business logic, NO dependencies on Android/Room/Ktor/Retrofit/UI
-   ↑ (implementations depend inward)
-Data layer — implements Domain interfaces, repositories
-   ↑
-Presentation layer — depends on Domain abstractions via DI
-   ↑
-Infrastructure — Hilt modules provide concrete implementations
+The system strictly follows Clean Architecture principles where dependencies point strictly inward toward Domain abstractions:
 
-**Code reality verified:**
-- ✅ Domain: No Android imports, no frameworks → CLEAN
-- ✅ Data: Implements StorageAdapter, StorageRepository interfaces → CLEAN
-- ✅ Presentation: ViewModels depend on repositories → CLEAN
-- ✅ Infrastructure: HiltModules instantiate implementations → CORRECT
+```
+┌────────────────────────────────────────────────────────┐
+│                   Infrastructure Layer                 │
+│  - Hilt Dependency Injection Modules (HiltModules.kt)   │
+│  - Android Framework integration                       │
+└───────────────────────────┬────────────────────────────┘
+                            │ composes & injects
+                            ▼
+┌───────────────────────────┬────────────────────────────┐
+│    Presentation Layer     │         Data Layer         │
+│  - Jetpack Compose UI     │  - Room DAOs & DB          │
+│  - Android ViewModels     │  - SafStorageAdapter       │
+│  - StateFlow UI State     │  - Repository Impls        │
+└─────────────┬─────────────┴─────────────┬──────────────┘
+              │ depends on                │ implements
+              │ Domain interfaces         │ Domain interfaces
+              ▼                           ▼
+┌────────────────────────────────────────────────────────┐
+│                   Domain Layer (Core)                  │
+│  - Pure Kotlin Entities (No Android/UI dependencies)  │
+│  - Use Cases & Business Rules                          │
+│  - Repository & StorageAdapter Interfaces              │
+│  - Domain Value Objects & Exceptions                   │
+└────────────────────────────────────────────────────────┘
+```
 
-### 1.1 Presentation Layer (UI) [✅ IMPLEMENTED — Sprint 3A]
+**Architectural Reality Verified:**
+- `Domain`: Pure Kotlin, no Android imports, no Room/Ktor/UI frameworks → [IMPLEMENTED] (Clean)
+- `Data`: Implements `StorageAdapter` and domain repositories → [PARTIALLY IMPLEMENTED] (Room complete, SAF write defective)
+- `Presentation`: ViewModels observe domain repositories → [IMPLEMENTED]
+- `Infrastructure`: Hilt provides singletons and bindings → [PARTIALLY IMPLEMENTED] (Root URI placeholder)
+
+---
+
+### 1.2 Presentation Layer (UI) [PARTIALLY IMPLEMENTED]
 
 **Components:**
-- `MainActivity` — Jetpack Compose navigation host [✅]
-- `OnboardingScreen` — SAF directory picker, setup flow [⚠️ PARTIAL — no SAF picker implemented]
-- `DashboardScreen` — File browser, transfer UI [✅]
-- `ViewModels` — State management (Storage, Transfer, Device, Server) [✅]
-- `Theme` — Material Design 3 colors, typography [✅]
+- `MainActivity` — Jetpack Compose navigation host [IMPLEMENTED]
+- `OnboardingScreen` — Welcome & overview screen [PARTIALLY IMPLEMENTED — No SAF tree picker implemented]
+- `DashboardScreen` — File browser, node status, and transfer UI [IMPLEMENTED]
+- `ViewModels` — State management (`StorageViewModel`, `TransferViewModel`, `DeviceViewModel`, `ServerViewModel`) [IMPLEMENTED]
+- `Theme` — Material Design 3 colors, typography [IMPLEMENTED]
 
-**Responsibilities:**
-- ✅ User interaction handling
-- ✅ UI state via ViewModel
-- ✅ Navigation routing
-
-**Not Implemented:**
-- ❌ SAF tree URI picker (user cannot select storage folder)
-- ❌ Backend URL configuration UI
-- ❌ API endpoint settings screen
+**Gaps & Blockers:**
+- `SAF Tree URI Picker` [NOT IMPLEMENTED — BLOCKER]: No `ActivityResultContracts.OpenDocumentTree` invocation. User cannot select storage directory.
+- `Backend URL Configuration UI` [NOT IMPLEMENTED]: No UI to configure server endpoint.
+- `API Endpoint Settings Screen` [NOT IMPLEMENTED]: Placeholder only.
 
 ---
 
-### 1.2 Domain Layer (Business Logic)
+### 1.3 Domain Layer (Business Logic) [IMPLEMENTED]
 
 **Entities:**
-```kotlin
-data class StorageNodeEntity(
-    val id: UUID,
-    val nodeId: String,
-    val userId: UUID,
-    val createdAt: LocalDateTime
-)
+- `StorageNodeEntity`, `StorageDirectoryEntity`, `StorageFileEntity`, `FileTransferEntity`, `AuthorizedDeviceEntity`, `PendingOperationEntity`, `DeviceCredentialsEntity`, `PairingChallengeEntity`, `ServerStateEntity`.
 
-data class StorageDirectoryEntity(
-    val id: UUID,
-    val nodeId: UUID,
-    val uri: String,      // SAF tree URI
-    val lastSyncAt: LocalDateTime?
-)
-
-data class StorageFileEntity(
-    val id: UUID,
-    val parentUri: String,
-    val name: String,
-    val hash: String,     // SHA-256
-    val size: Long,
-    val isTemp: Boolean,
-    val lastModifiedAt: LocalDateTime
-)
-
-data class FileTransferEntity(
-    val id: UUID,
-    val fileId: UUID,
-    val status: TransferStatus, // PENDING, UPLOADING, COMPLETE, FAILED
-    val direction: TransferDirection, // UPLOAD, DOWNLOAD
-    val progressBytes: Long,
-    val totalBytes: Long,
-    val retryCount: Int,
-    val errorMessage: String?
-)
-```
-
-**UseCases (Interfaces):**
-```kotlin
-interface SelectStorageDirectoryUseCase
-interface ListStorageFilesUseCase
-interface ReadFileStreamUseCase
-interface UploadFileUseCase
-interface ComputeFileHashUseCase
-interface SyncChangesUseCase
-```
-
-**Storage Adapter Interface:**
-```kotlin
-interface StorageAdapter {
-    suspend fun initialize(): StorageOperationResult<Unit>
-    suspend fun listRootFiles(): StorageOperationResult<List<StorageFileInfo>>
-    suspend fun readFileStream(
-        fileUri: String,
-        outputStream: suspend (ByteArray) -> Unit,
-        progressListener: TransferProgressListener?
-    ): StorageOperationResult<HashVerificationResult>
-    suspend fun writeFileStream(...)
-    suspend fun computeFileHash(fileUri: String): StorageOperationResult<String>
-    // ... 16 more operations
-}
-```
-
-**Exception Hierarchy:**
-```
-StorageException
-├── PermissionDenied
-├── FileNotFound
-├── DirectoryNotFound
-├── InvalidPath
-├── NameConflict
-├── InsufficientSpace
-└── OperationFailed
-```
+**Use Cases & Abstractions:**
+- `StorageAdapter`, `StorageDirectoryRepository`, `StorageFileRepository`, `FileTransferRepository`, etc.
 
 ---
 
-### 1.3 Data Layer (Repositories & Adapters) [⚠️ PARTIALLY IMPLEMENTED]
+### 1.4 Data Layer (Repositories & Adapters) [PARTIALLY IMPLEMENTED]
 
-**SafStorageAdapter (SAF Implementation) [⚠️ PARTIAL]:**
-- **Status:** IMPLEMENTED with critical gaps
-- **Responsibility:** Android Storage Access Framework integration
-- **Scope:** File I/O, permissions, SAF URI handling
-- **Critical Paths:**
-  - `initialize()` → permission revalidation + provider check [✅ IMPLEMENTED]
-  - `readFileStream()` → SHA-256 hashing + buffer optimization [✅ IMPLEMENTED]
-  - `writeFileStream()` → atomic temp-file replacement [❌ NOT ATOMIC — see BLOCKERS]
-- **Constraints:**
-  - Max file size: 100 MB (configurable)
-  - Buffer size: 64 KB (configurable, 4-2048 KB range)
-  - Temp file suffix: `.nexsync-temp`
-  - Temp cleanup: 24-hour max age
+#### SafStorageAdapter (SAF Implementation) [PARTIALLY IMPLEMENTED — CRITICAL DEFECTS]
+- `initialize()`: [IMPLEMENTED] with permission revalidation probe.
+- `readFileStream()`: [IMPLEMENTED] with SHA-256 calculation and 64KB chunk streaming.
+- `writeFileStream()`: [NOT IMPLEMENTED SAFELY — BLOCKER]: Delete-before-rename creates permanent data-loss window; Boolean return values of `delete()` and `renameTo()` are ignored; null `openOutputStream()` silently skips writes.
 
-**CRITICAL ISSUES:**
-- ⚠️ Root SAF URI: Hardcoded placeholder, not user-selected [LINE: HiltModules.kt:146]
-- 🔴 Atomic write: Non-atomic delete-then-rename, Boolean returns not checked [LINE: SafStorageAdapter.kt:592-593]
-- ⚠️ Output stream: null return silently skips write [LINE: SafStorageAdapter.kt:578]
-- ⚠️ Hash verification: expectedHash empty, isValid always true [LINE: SafStorageAdapter.kt:601-602]
+#### Root SAF Configuration [NOT IMPLEMENTED SAFELY — BLOCKER]
+- `HiltModules.kt` line 146 hardcodes:
+  `val rootTreeUri = "content://com.android.providers.media.documents/tree/primary%3A"`
+- **Runtime Consequence:** At runtime, `contentResolver.takePersistableUriPermission()` fails because the URI was not received via an `ACTION_OPEN_DOCUMENT_TREE` user intent. Subsequent `verifyAccess()` checks `root.canRead()`, which returns false, causing `initialize()` to fail with `StorageException.PermissionDenied`. Storage initialization fails completely on startup.
+- **Remediation Required:** Implement `ACTION_OPEN_DOCUMENT_TREE` in onboarding, persist tree URI to DataStore via `takePersistableUriPermission()`, and inject dynamic URI into `SafStorageAdapter`.
 
-**Room Repositories (9 entities) [✅ IMPLEMENTED]:**
-- All 9 repositories complete and tested
+#### Room Database & Repositories [IMPLEMENTED]
+- All 9 entities, DAOs, and migrations are implemented in `data/db/`.
 
-**Network Client (Retrofit + OkHttp) [⚠️ PARTIAL]:**
-- NexSyncApiClient infrastructure complete [✅]
-- File sync endpoints (basic CRUD) [✅]
-- **Remote relay endpoints:** [❌ NOT IMPLEMENTED]
-  - `/sync/file-relay` — not designed
-  - `/sync/metadata-sync` — not designed
+#### Ktor Server Implementation State [NOT IMPLEMENTED]
+A strict audit of the codebase shows the following actual state for the embedded Ktor server:
+- `Ktor dependencies in build.gradle.kts`: [IMPLEMENTED] (`ktor-server-core`, `cio`, `auth`, `jwt`, `cors`)
+- `Server engine instantiated`: [NOT IMPLEMENTED] (No `embeddedServer` call in codebase)
+- `Server lifecycle management`: [NOT IMPLEMENTED] (`ServerViewModel.kt` lines 48-49 contains `TODO: Implement actual server start logic`)
+- `API routes & handlers`: [NOT IMPLEMENTED] (No route definitions for storage node API)
+- `HTTP streaming endpoints`: [NOT IMPLEMENTED]
+- `Security middleware (JWT/CORS)`: [NOT IMPLEMENTED]
+- `Ktor integration verified`: [NOT VERIFIED]
+- **Conclusion:** Declaring dependencies in Gradle does not constitute implementation. Ktor server engine is scheduled for Sprint 3B-3F.
 
----
-
-### 1.4 Infrastructure Layer (DI & Configuration)
-
-**Hilt Modules:**
-```kotlin
-@Module
-@InstallIn(SingletonComponent::class)
-object StorageModule {
-    @Provides
-    @Singleton
-    fun provideSafStorageAdapter(
-        context: Context,
-        preferences: DataStore<Preferences>
-    ): StorageAdapter = SafStorageAdapter(context, ...)
-}
-
-@Module
-@InstallIn(SingletonComponent::class)
-object DatabaseModule {
-    @Provides
-    @Singleton
-    fun provideDatabase(context: Context): AppDatabase = 
-        Room.databaseBuilder(context, AppDatabase::class.java, "nexsync.db")
-            .addMigrations(*AppDatabase.migrations)
-            .build()
-}
-
-@Module
-@InstallIn(SingletonComponent::class)
-object NetworkModule {
-    @Provides
-    @Singleton
-    fun provideNexSyncApi(
-        okHttpClient: OkHttpClient
-    ): NexSyncApiClient = Retrofit.Builder()
-        .baseUrl("http://localhost:5000") // ⚠️ DEVELOPMENT PLACEHOLDER ONLY — physical Android needs configurable URL
-        .client(okHttpClient)
-        .addConverterFactory(KotlinxSerializationConverterFactory())
-        .build()
-        .create(NexSyncApiClient::class.java)
-}
-```
-
-**Configuration (DataStore):**
-```
-nexsync.preferences
-├── storage_root_uri: String (SAF tree URI)
-├── device_id: UUID
-├── device_name: String
-├── sync_enabled: Boolean
-├── buffer_size_bytes: Int (default 65536)
-└── api_base_url: String
-```
+#### Backend Client & Remote Access [PARTIALLY IMPLEMENTED]
+- `NexSyncApiClient`: Retrofit client structure present.
+- `Backend Base URL`: Hardcoded to `"http://localhost:5000"` in `HiltModules.kt` line 197 as a **development placeholder**. On physical Android devices, `localhost` points to the mobile device itself, not the backend host. A configurable URL is required for real networking.
+- `Remote Relay Endpoints`: (`/sync/file-relay`) [NOT IMPLEMENTED — PLANNED SPRINT 4].
 
 ---
 
@@ -462,32 +362,42 @@ Direct connect: Skip Backend relay for LAN
 
 ---
 
-## 6. DEPLOYMENT READINESS [🔴 NOT READY FOR PRODUCTION]
+## 6. DEPLOYMENT READINESS [NOT READY FOR PRODUCTION]
 
-**v1.0 Baseline (Sprint 3A status):**
-- ✅ Clean Architecture enforced (Domain independent)
-- ✅ Gradle build infrastructure files present (runtime NOT verified)
-- ⏳ 19 unit tests designed (NOT executed — Java unavailable in environment)
-- ⚠️ SAF operations: read-path functional, write-path has critical data-loss defect
-- ⚠️ Root URI: hardcoded placeholder, no onboarding picker
-- ✅ ADR documented (status: PROPOSED — PENDING OWNER APPROVAL)
+**Sprint 3A Baseline Verification Status:**
+- `Clean Architecture`: [IMPLEMENTED] (Domain strictly isolated)
+- `Gradle Build Infrastructure`: [PARTIALLY IMPLEMENTED — NOT VERIFIED] (Configuration and files present; wrapper runtime, compilation, and APK NOT VERIFIED due to missing Java environment)
+- `Unit Tests`: [NOT VERIFIED] (19 mock-based tests designed in source; 0 tests executed; no execution reports)
+- `SAF Storage Operations`: [PARTIALLY IMPLEMENTED] (Read stream verified by inspection; write stream contains critical non-atomic data-loss defect)
+- `Root SAF Storage Configuration`: [NOT IMPLEMENTED SAFELY — BLOCKER] (Hardcoded placeholder in `HiltModules.kt`; no SAF picker in UI; fails at runtime with permission denied)
+- `ADR Android Remote Access`: [IMPLEMENTED — PROPOSED PENDING OWNER APPROVAL] (Backend Relay recommended; authorization NOT granted)
 
-**BLOCKERS FOR PRODUCTION:**
-1. 🔴 SAF atomic write safety (delete-then-rename data loss window)
-2. 🔴 Root URI initialization (placeholder instead of user selection)
-3. 🔴 Onboarding flow (no SAF picker implementation)
-4. 🔴 Backend Relay API specification (not yet designed)
-5. 🔴 Gradle build/test execution proof (environment lacks Java)
+**CRITICAL BLOCKERS FOR PRODUCTION & SPRINT PROGRESSION:**
+1. 🔴 **SAF Atomic Write Safety** [BLOCKER]: Delete-before-rename creates permanent data-loss window; ignored Boolean return values cause false success; null `openOutputStream` promotes empty files. Must evaluate immutable versioned objects pattern.
+2. 🔴 **Root URI Initialization** [BLOCKER]: Hardcoded placeholder in DI. Must implement dynamic SAF tree picker in onboarding and persist URI permissions.
+3. 🔴 **Onboarding Flow Missing SAF Picker** [BLOCKER]: `OnboardingScreen.kt` navigates directly to dashboard without invoking `ACTION_OPEN_DOCUMENT_TREE`.
+4. 🔴 **Backend Relay API Specification** [BLOCKER]: Relay endpoints (`/sync/file-relay`) not yet designed or approved by backend owner.
+5. 🔴 **Gradle Build & Test Execution Proof** [NOT VERIFIED]: Environment lacks JDK; build, test, and artifact generation have not been executed.
 
-**NOT YET IMPLEMENTED:**
-- ⏳ Ktor Server engine and API routes (Sprint 3B-3F)
-- ⏳ Device pairing (Sprint 4)
-- ⏳ Remote access via Backend Relay (Sprint 4)
-- ⏳ LAN optimization via mDNS (Sprint 6)
-- ⏳ Integration tests on emulator/device (Sprint 3E/7)
+---
+
+## 7. AGREED ROADMAP & SEQUENCING
+
+| Sprint | Objective | Implementation Status | Scope / Deliverables |
+|---|---|---|---|
+| **Sprint 3A** | Architecture Documentation + ADR | `IMPLEMENTED` (Pending Owner Decision) | Clean Architecture alignment, ADR status correction, SAF atomic write audit |
+| **Sprint 3B** | Ktor Engine + Lifecycle | `PLANNED` | Embedded Ktor server engine, background lifecycle management |
+| **Sprint 3C** | API Routes + Streaming | `PLANNED` | Storage API endpoints, chunked file streaming |
+| **Sprint 3D** | Security Middleware | `PLANNED` | JWT token validation, CORS configuration, rate limiting |
+| **Sprint 3E** | Integration Testing | `PLANNED` | Local node integration tests, mock client verification |
+| **Sprint 3F** | Server UI Integration | `PLANNED` | Dashboard server controls, port configuration, status displays |
+| **Sprint 4** | Device Pairing + Backend Integration | `PLANNED` (Conditional on ADR Approval) | Outbound sync client, `/sync/file-relay` backend integration |
+| **Sprint 5** | Background Service + Discovery | `PLANNED` | Android foreground service, local mDNS discovery |
+| **Sprint 6** | Desktop + Web Client Integration | `PLANNED` | Multi-client relay consumption |
+| **Sprint 7** | E2E Testing, Hardening & Release | `PLANNED` | Performance verification, security audit, release build |
 
 ---
 
 **Architecture Version:** 1.0  
 **Status:** PROPOSED — Pending Owner Approval  
-**Next:** Sprint 3B (Ktor Engine) AFTER critical blockers resolved
+**Next Step:** Owner review of ADR recommendation; resolve critical SAF write and root URI blockers before starting Sprint 3B implementation.

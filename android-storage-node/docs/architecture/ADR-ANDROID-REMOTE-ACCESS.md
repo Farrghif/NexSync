@@ -312,13 +312,13 @@ Storage Node     Desktop        Web (WebRTC)
 
 | Sprint | Task | Status | Ownership | Prerequisite |
 |--------|------|--------|-----------|---|
-| 3B | Ktor engine + lifecycle | PLANNED | Android | Owner approval of ADR |
+| 3B | Ktor engine + lifecycle | PLANNED | Android | Sprint 3A documentation complete + blockers addressed |
 | 3C | API routes + streaming | PLANNED | Android | 3B complete |
 | 3D | Security middleware | PLANNED | Android | 3C complete |
 | 3E | Integration tests | PLANNED | Android | 3D complete |
 | 3F | Server UI integration | PLANNED | Android | 3E complete |
-| 4 | Backend `/sync/file-relay` API | PLANNED | Backend | Owner approval + API spec complete |
-| 4 | Storage Node outbound sync client | PLANNED | Android | Backend API spec complete |
+| 4 | Backend `/sync/file-relay` API | PLANNED | Backend | Owner approval of ADR + API spec complete |
+| 4 | Storage Node outbound sync client | PLANNED | Android | Owner approval of ADR + Backend API spec complete |
 | 5 | Desktop/Web relay client integration | PLANNED | Desktop/Web | Sprint 4 complete |
 | 6 | Local LAN optimization (mDNS) | PLANNED | Android | Sprint 4 complete |
 | 7+ | Optional VPN/P2P (backlog) | BACKLOG | TBD | Not required for v1.0 |
