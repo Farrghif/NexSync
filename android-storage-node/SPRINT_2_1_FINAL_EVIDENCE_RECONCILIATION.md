@@ -133,22 +133,22 @@
 **Evidence Report Claim (Line 13):** "Write File Stream | SafStorageAdapter.kt | Unit + Mock | ✅ Verified"
 
 **Reconciliation Finding:**
-`writeFileStream()` lines 591-594:
+`writeFileStream()` lines 571, 578, 591-597:
 ```kotlin
-// Replace original file with temp file
-file.delete()                                // Line 592
-tempFile.renameTo(file.name ?: "file")     // Line 593
+val tempFile = createTempFile(file.parentFile?.uri.toString(), file.name ?: "temp")
+...
+file.delete()                                // Line 592 - returns Boolean, ignored
+tempFile.renameTo(file.name ?: "file")     // Line 593 - returns Boolean, ignored
 tempUri = null
 ```
 
-**Critical Issue:** This is NOT atomic.
-- Delete succeeds → Line 592 returns
-- Rename fails → Line 593 throws exception
-- **Result:** Original file deleted, temp file NOT renamed = **DATA LOSS**
+**Critical Issues:**
+1. **Current Reachable Failure:** `file.parentFile` is null for `SingleDocumentFile`. Passing `"null"` causes `DocumentFile.fromTreeUri()` to throw `IllegalArgumentException` in `createTempFile()`, causing `writeFileStream()` to immediately abort at line 572 before any writing begins.
+2. **Latent Dangerous Finalization:** If temp creation is fixed, `delete()` and `renameTo()` return `Boolean` without throwing exceptions. If delete succeeds and rename returns `false`, `tempUri` is cleared, `onComplete()` is called, and `Success` is returned.
+3. **Data Loss & False Success:** Original file is permanently deleted, temp file is orphaned, and caller receives a false `Success` report.
+4. **Calculative Hash Only:** `expectedHash` is hardcoded to `""` and `isValid` is hardcoded to `true`.
 
-No rollback, no verification that rename succeeded before considering operation complete.
-
-**Verdict:** Atomic write mechanism is **NOT SAFE** under failure scenarios.
+**Verdict:** Atomic write mechanism is **UNSAFE** and contains critical reachable and latent blockers.
 
 ---
 
@@ -170,43 +170,42 @@ No rollback, no verification that rename succeeded before considering operation 
 
 ### 🔴 DEFECT #1: Placeholder Root URI Used at Runtime
 
-**Severity:** CRITICAL  
-**Location:** `HiltModules.kt` lines 144-146  
-**Impact:** SafStorageAdapter initializes with wrong folder URI  
+**Severity:** CRITICAL
+**Location:** `HiltModules.kt` lines 144-146
+**Impact:** Node cannot dynamically initialize user storage
 
-**Failure Mode:**
-1. App starts → Hilt creates SafStorageAdapter with placeholder URI
-2. SafStorageAdapter.initialize() called with placeholder
-3. Placeholder folder might not exist or be wrong folder
-4. File operations silently go to wrong location
-5. User thinks files backed up, but they're in placeholder folder
-6. Files not synced to Backend (not in actual selected folder)
+**Source Finding vs Runtime Outcome:**
+- **Static Source Findings:**
+  1. `HiltModules.kt` injects a static placeholder URI: `"content://com.android.providers.media.documents/tree/primary%3A"`.
+  2. `OnboardingScreen.kt` has no SAF tree picker flow or URI permission persistence.
+- **Runtime Outcome:** NOT VERIFIED on physical Android device. However, `initialize()` calls `takePersistableUriPermission()` and `verifyAccess()`. Passing an ungranted placeholder URI is expected to fail permission revalidation, blocking node initialization at startup.
 
 **Current Workaround:** None. This is a blocker for multi-device sync.
 
-**Required Fix:** Implement SAF picker, persist URI to preferences, read from preferences in DI.
+**Required Fix:** Implement SAF tree picker (`ACTION_OPEN_DOCUMENT_TREE`) in onboarding, call `takePersistableUriPermission()`, persist URI to DataStore, and inject dynamic URI into DI.
 
 ---
 
-### 🔴 DEFECT #2: Non-Atomic File Write
+### 🔴 DEFECT #2: Non-Atomic File Write & Data Loss Hazard
 
-**Severity:** CRITICAL  
-**Location:** `SafStorageAdapter.kt` lines 591-594  
-**Impact:** Data loss under write failures  
+**Severity:** CRITICAL
+**Location:** `SafStorageAdapter.kt` lines 571, 578, 591-603
+**Impact:** Pre-write failure currently; latent permanent data loss upon finalization
 
 **Failure Scenarios:**
-1. Write completes successfully
-2. Hash verification passes
-3. Original file deleted (succeeds)
-4. Temp file rename fails (e.g., permissions changed, provider error)
-5. **Result:** Original file deleted, no new file created = DATA LOSS
+1. **Reachable:** `file.parentFile` is null, causing `createTempFile()` to fail and abort write before streaming.
+2. **Latent:** If temp file is created, `file.delete()` deletes original, `tempFile.renameTo()` returns `false`, Boolean return is ignored, and method reports false `Success` while original file is permanently lost.
+3. **Latent:** `openOutputStream()` returns null, safe-call skips write, 0-byte file promoted.
+4. **Latent:** Hash verification hardcodes `isValid = true` with empty `expectedHash`.
 
-**Current Mitigation:** Temp file cleanup in catch block, but original already deleted
+**Current Mitigation:** None effective for data preservation.
 
-**Required Fix:** Redesign atomic replacement strategy:
-- Option A: Versioned immutable files (keep old, promote new only if rename succeeds)
-- Option B: Provider-aware promotion (check rename before delete)
-- Option C: Backup original before delete
+**Required Fix:** Redesign storage safety:
+- Candidate: Immutable Versioned Objects with Recoverable Commit Protocol (Room DB metadata pointer promotion).
+- Explicitly separate Room DB transaction atomicity from SAF non-atomic file operations.
+- Explicitly check `openOutputStream()` for null and handle `FileNotFoundException`.
+- Capture and handle Boolean returns of all SAF operations.
+- Implement real hash comparison (`computedHash == expectedHash`).
 
 ---
 

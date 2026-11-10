@@ -91,11 +91,15 @@ The system strictly follows Clean Architecture principles where dependencies poi
 #### Root SAF Configuration [NOT IMPLEMENTED SAFELY — BLOCKER]
 - `HiltModules.kt` line 146 hardcodes:
   `val rootTreeUri = "content://com.android.providers.media.documents/tree/primary%3A"`
-- **Runtime Consequence:** At runtime, `contentResolver.takePersistableUriPermission()` fails because the URI was not received via an `ACTION_OPEN_DOCUMENT_TREE` user intent. Subsequent `verifyAccess()` checks `root.canRead()`, which returns false, causing `initialize()` to fail with `StorageException.PermissionDenied`. Storage initialization fails completely on startup.
-- **Remediation Required:** Implement `ACTION_OPEN_DOCUMENT_TREE` in onboarding, persist tree URI to DataStore via `takePersistableUriPermission()`, and inject dynamic URI into `SafStorageAdapter`.
+- **Static Source Findings:**
+  1. A static hardcoded placeholder URI is injected into `SafStorageAdapter`.
+  2. There is no user-selected tree URI flow or SAF folder picker in `OnboardingScreen.kt` or `MainActivity.kt`.
+- **Runtime Outcome:** NOT VERIFIED on physical Android device. However, `SafStorageAdapter.initialize()` calls `contentResolver.takePersistableUriPermission()` and `verifyAccess()`; because the placeholder URI was never granted through a user `ACTION_OPEN_DOCUMENT_TREE` intent, initialization is expected to fail permission checks at startup.
+- **Remediation Required:** Implement `ActivityResultContracts.OpenDocumentTree` in onboarding, persist tree URI to DataStore via `takePersistableUriPermission()`, and inject dynamic URI into `SafStorageAdapter`.
 
-#### Room Database & Repositories [IMPLEMENTED]
-- All 9 entities, DAOs, and migrations are implemented in `data/db/`.
+#### Room Database & Repositories [IMPLEMENTED in source — Runtime NOT VERIFIED]
+- All 9 entities, DAOs, and database migrations are written and present in `data/db/`. Repository implementations are present in `data/repositories/`.
+- Runtime execution, database queries, and schema migration integrity are NOT VERIFIED due to lack of an executable Android/Java test environment.
 
 #### Ktor Server Implementation State [NOT IMPLEMENTED]
 A strict audit of the codebase shows the following actual state for the embedded Ktor server:
@@ -282,24 +286,35 @@ catch (e: SecurityException) {
 
 ---
 
-### 3.4 Atomic Temp-File Replacement [❌ CRITICAL DATA LOSS RISK]
+### 3.4 Atomic Temp-File Replacement [❌ CRITICAL DEFECTS & DATA LOSS RISK]
 
-**Current Code Implementation (SafStorageAdapter.kt lines 591-594):**
+**Current Code Implementation (`SafStorageAdapter.kt` lines 571, 578, 591-603):**
 ```kotlin
+// Pre-write temp file creation:
+val tempFile = createTempFile(file.parentFile?.uri.toString(), file.name ?: "temp")
+
+// Finalization sequence (lines 591-594):
 file.delete()                                // Returns Boolean, NOT CHECKED
 tempFile.renameTo(file.name ?: "file")     // Returns Boolean, NOT CHECKED
 tempUri = null
 ```
 
-**CRITICAL DEFECTS:**
-1. **Return values ignored:** delete() and renameTo() return Boolean; failures do NOT throw IOException
-2. **False success path:** If delete succeeds and rename returns false, code continues to `onComplete()` and returns Success
-3. **Data loss window:** Original file deleted, temp file NOT promoted = PERMANENT DATA LOSS
-4. **openOutputStream null handling:** If openOutputStream() returns null, write loop skipped silently with no error
-5. **No true hash verification:** expectedHash is empty string, isValid is hardcoded true; only calculates hash, does not compare
-6. **Parent URI issue:** file.parentFile?.uri.toString() evaluates to "null" for fromSingleUri(), createTempFile receives "null"
+**DEFECT CLASSIFICATION:**
 
-**Status:** BLOCKER — Write operations MUST be redesigned before multi-device sync or production release.
+1. **Current Reachable Failure (Pre-Write Blocker):**
+   - `file` is instantiated via `DocumentFile.fromSingleUri()`, where AndroidX `SingleDocumentFile.getParentFile()` always returns `null`.
+   - `file.parentFile?.uri.toString()` evaluates to the string `"null"`.
+   - `createTempFile()` passes `"null"` to `DocumentFile.fromTreeUri()`, which throws `IllegalArgumentException` in `DocumentsContract.getTreeDocumentId()`.
+   - The helper catches this and returns `null`, causing `writeFileStream()` to immediately abort at line 572 before writing any bytes or touching the original file.
+
+2. **Latent Dangerous Finalization Defects (Reachable Once Temp Creation Succeeds):**
+   - **Return values ignored:** `delete()` and `renameTo()` return `Boolean`; failures do NOT throw `IOException`.
+   - **False success with data loss:** If `delete()` succeeds and `renameTo()` returns `false`, `tempUri` is cleared, `onComplete()` is called, and `Success` is returned. The original file is permanently deleted with no replacement.
+   - **Silent skip on null output stream:** If `openOutputStream()` returns `null` or throws `FileNotFoundException`, safe-call `?.use` skips writing, deleting the original file and promoting an empty 0-byte file.
+   - **Calculative hash only:** `expectedHash` is hardcoded to `""` and `isValid` is hardcoded to `true`. No integrity comparison is performed against an expected hash, and transferred bytes are not verified against total size.
+   - **Provider URI mutation:** `renameTo()` can return a new URI or alter MIME types, leaving callers holding stale URIs.
+
+**Status:** BLOCKER — Write operations MUST be redesigned (evaluating Immutable Versioned Objects with a Recoverable Commit Protocol) before multi-device sync or production release.
 See full analysis: `docs/reliability/SAF-ATOMIC-WRITE-INVESTIGATION.md`
 
 ---
