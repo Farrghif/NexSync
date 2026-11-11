@@ -22,6 +22,17 @@ public class CsrfTokenService
     }
 
     /// <summary>
+    /// Return the session's token, creating one only if absent — regenerating
+    /// here would invalidate the token the client already holds.
+    /// </summary>
+    public static string GetOrCreateToken(ISession session)
+    {
+        if (session.TryGetValue(SessionKey, out var stored) && stored is { Length: > 0 })
+            return System.Text.Encoding.UTF8.GetString(stored);
+        return GenerateToken(session);
+    }
+
+    /// <summary>
     /// Validate CSRF token from request against session token.
     /// </summary>
     public static bool ValidateToken(ISession session, string? providedToken)

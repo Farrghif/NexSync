@@ -20,9 +20,11 @@ public class CsrfMiddleware
         // Enable session if not already enabled
         await context.Session.LoadAsync();
 
-        // Generate or retrieve CSRF token
-        var token = CsrfTokenService.GenerateToken(context.Session);
-        
+        // Generate or retrieve the session's CSRF token once per request.
+        // Regenerating on every request would invalidate the token the client holds,
+        // causing refresh/logout validation to always fail (Invalid CSRF token).
+        var token = CsrfTokenService.GetOrCreateToken(context.Session);
+
         // Add CSRF token to response header for client to use in subsequent requests
         context.Response.OnStarting(() =>
         {

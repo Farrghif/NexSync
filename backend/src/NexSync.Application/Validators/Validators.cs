@@ -76,7 +76,7 @@ public static class AuthValidator
         
         if (complexityCount < 3)
             throw new DomainException(
-                "Password must contain at least 3 of: lowercase letters, uppercase letters, digits, special characters.");
+                "Password must contain at least 3 of: lowercase letters, uppercase letters, digits, special characters, and must be at least 8 characters.");
     }
 
     public static void ValidateFullName(string fullName)
