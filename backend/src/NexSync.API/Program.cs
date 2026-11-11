@@ -8,6 +8,10 @@ using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Session backing store required by AddSession.
+// shortcut: in-memory only — sessions are lost on restart and not shared across instances; use AddStackExchangeRedisCache when running multi-instance.
+builder.Services.AddDistributedMemoryCache();
+
 // Session configuration for CSRF token storage
 builder.Services.AddSession(options =>
 {
@@ -60,8 +64,8 @@ var app = builder.Build();
 // Security middleware pipeline (order matters)
 app.UseMiddleware<ErrorHandlingMiddleware>();
 app.UseMiddleware<RateLimitingMiddleware>();      // Rate limit before CSRF check
+app.UseSession();                                 // Session must run before CsrfMiddleware (it reads context.Session)
 app.UseMiddleware<CsrfMiddleware>();              // CSRF token generation
-app.UseSession();                                   // Session must be before auth
 app.UseCors("WebClient");
 app.UseAuthentication();
 app.UseAuthorization();

@@ -27,7 +27,8 @@ public class RateLimiter
             clientIp = "unknown";
 
         var now = DateTime.UtcNow;
-        var bucket = _buckets.AddOrUpdate(clientIp,
+        var allowed = true;
+        _buckets.AddOrUpdate(clientIp,
             new RequestBucket { FirstRequestTime = now, Count = 1 },
             (_, existing) =>
             {
@@ -36,18 +37,20 @@ public class RateLimiter
                 // Reset bucket if outside window
                 if (timeSinceFirstRequest > _window)
                     return new RequestBucket { FirstRequestTime = now, Count = 1 };
-                
-                // Increment if within window and under limit
-                if (existing.Count < _maxRequests)
+
+                // Deny once the window count reached the limit — check BEFORE incrementing,
+                // otherwise the capped count can never signal rejection (fails closed under contention).
+                if (existing.Count >= _maxRequests)
                 {
-                    existing.Count++;
+                    allowed = false;
                     return existing;
                 }
-                
+
+                existing.Count++;
                 return existing;
             });
 
-        return bucket.Count <= _maxRequests;
+        return allowed;
     }
 
     /// <summary>
