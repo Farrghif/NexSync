@@ -4,5 +4,7 @@ public enum DevicePlatform
 {
     Windows,
     Android,
-    Web
+    Web,
+    Desktop,
+    iOS
 }

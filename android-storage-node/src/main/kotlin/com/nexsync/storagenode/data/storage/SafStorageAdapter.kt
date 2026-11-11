@@ -588,9 +588,20 @@ class SafStorageAdapter(
                     }
                 }
                 
-                // Replace original file with temp file
-                file.delete()
-                tempFile.renameTo(file.name ?: "file")
+                // Recoverable commit protocol: atomically replace original with temp file
+                // Step 1: Attempt to rename temp file to original name (atomic on same filesystem)
+                if (!tempFile.renameTo(file.name ?: "file")) {
+                    // Step 2: Rename failed — original file is still intact, original data preserved
+                    // Clean up the orphaned temp file and report recoverable error
+                    tempFile.delete()
+                    tempUri = null
+                    progressListener?.onError(StorageException.OperationFailed("Write commit failed: rename operation failed"))
+                    return@withContext StorageOperationResult.Error(
+                        StorageException.OperationFailed("Failed to commit write: file could not be renamed; original data preserved")
+                    )
+                }
+                // Step 3: Rename succeeded — original file has been replaced, commit is complete
+                // No need to separately delete the original; rename replaced it atomically
                 tempUri = null
                 
                 progressListener?.onComplete()
@@ -702,11 +713,12 @@ class SafStorageAdapter(
 
     override fun isValidPath(path: String): Boolean {
         // Prevent path traversal and invalid characters
-        return !path.contains("..") &&
+        // Order: cheapest checks first (isNotEmpty) for short-circuit evaluation
+        return path.isNotEmpty() &&
+               !path.contains("..") &&
                !path.contains("/") &&
                !path.contains("\\") &&
                !path.contains("\u0000") &&
-               path.isNotEmpty() &&
                path.length <= 255
     }
 

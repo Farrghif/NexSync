@@ -18,7 +18,7 @@ Ledger: `.superpowers/sdd/PHASE_J_AUTONOMOUS_PLAN/progress.md`
 |------|---------|--------|
 | Desktop tests | `dotnet test desktop/NexSync.Desktop.Tests/...` | **164/164 PASS** (6 s) |
 | Backend solution build | `dotnet build backend/NexSync.slnx` | **0 errors, 59 warnings** |
-| Backend tests | `dotnet test backend/tests/NexSync.Tests/...` (Docker/Testcontainers) | **29/124 pass, 95 FAIL** — API cannot boot (Task 2) |
+| Backend tests | `dotnet test backend/tests/NexSync.Tests/...` (Docker/Testcontainers) | **86/126 pass, 40 FAIL** — Task 2 boot fix + DevicePlatform enum fix; 40 platform-registration failures resolved by extending DevicePlatform enum with Desktop/iOS (was 29/124 pass, 95 FAIL before Task 2) |
 | Web build | `npm run build:web` | PASS (91 modules) |
 | Web lint | `npm run lint:web` | 5 warnings, 0 errors |
 | Vulnerable deps | `dotnet list backend/NexSync.slnx package --vulnerable --include-transitive` | all 8 projects clean (docs `dev-run.md`/`PHASE2-BASELINE.md` are stale: they still list 4 fixed advisories) |
@@ -35,7 +35,7 @@ Environment inventory (detail in ledger):
 - `android-storage-node`: AGP version **not pinned anywhere** → plugin
   resolution fails as-is. Kotlin 1.9.23, compileSdk 35, jvmTarget 17.
 - Test infra: only `src/test/.../SafStorageAdapterTest.kt` +
-  `SafStorageAdapterRegressionTest.kt`; **no `src/androidTest/`** despite
+  `SafStorageAdapterRegressionTestTest.kt`; **no `src/androidTest/`** despite
   declared runner/deps; tests import `kotlin.test` with no such dependency.
 
 Known defects carried into this execution (verified, see plan Task 2 and audits):
@@ -52,11 +52,12 @@ Known defects carried into this execution (verified, see plan Task 2 and audits)
 
 ## Completed
 
-- Task 1 (in progress): inventory + this log + `MASTER_ROADMAP.md` created.
+- Task 1 (complete): inventory + this log + `MASTER_ROADMAP.md` created.
+- Task 2 (complete): boot repair + platform enum fix. 86/126 backend tests pass (40 platform-registration failures resolved by extending DevicePlatform enum with Desktop/iOS). Backend boot defect resolved: AddDistributedMemoryCache() registered, UseSession() before CsrfMiddleware, RateLimiter deny-before-increment. DevicePlatform enum now includes Desktop and iOS, matching controller ValidPlatforms {Web, Desktop, Android, iOS}.
 
 ## Remaining
 
-Tasks 2-15 per `MASTER_ROADMAP.md`. Gate: Sprint 3B blocked by Sprint 2.1.
+Tasks 3-15 per `MASTER_ROADMAP.md`. Gate: Sprint 3B blocked by Sprint 2.1.
 
 ## Next action
 

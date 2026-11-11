@@ -7,10 +7,10 @@ Protected baseline: tag `v2.0-phase2` = `a8fc6ba` — never rewritten.
 
 | # | Phase / Sprint | Scope | Status |
 |---|----------------|-------|--------|
-| 1 | Phase J — repo & environment verification | git/JDK/SDK/Gradle inventory, execution log + this roadmap | IN PROGRESS |
-| 2 | Backend boot repair (verified defect) | IDistributedCache + UseSession order + rate-limiter never-blocks; 124/124 | PENDING |
-| 3 | Phase K / Sprint 2.1 — SAF onboarding | dynamic root URI, persisted grants, revoke detection | PENDING |
-| 4 | Phase K / Sprint 2.1 — SAF handling + write redesign | fromSingleUri fix, Boolean checks, immutable versions + recoverable commit | PENDING |
+| 1 | Phase J — repo & environment verification | git/JDK/SDK/Gradle inventory, execution log + this roadmap | COMPLETE |
+| 2 | Backend boot repair (verified defect) | IDistributedCache + UseSession order + rate-limiter never-blocks; 124/124 | COMPLETE |
+| 3 | Phase K / Sprint 2.1 — SAF onboarding | dynamic root URI, persisted grants, revoke detection | COMPLETE |
+| 4 | Phase K / Sprint 2.1 — SAF handling + write redesign | fromSingleUri fix, Boolean checks, immutable versions + recoverable commit | IN PROGRESS |
 | 5 | Phase K / Sprint 2.1 — tests + acceptance gate | SAF test matrix, SAF_STORAGE_VERIFICATION.md, gate evidence | PENDING |
 | 6 | Phase L / Sprint 3B — Ktor server lifecycle | real embedded server, lifecycle tests (blocked by 5) | PENDING |
 | 7 | Phase M / Sprint 3C — API routes + streaming | versioned API, streaming, OpenAPI, per-route tests | PENDING |

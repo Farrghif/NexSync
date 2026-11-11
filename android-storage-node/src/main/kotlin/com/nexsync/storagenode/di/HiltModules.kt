@@ -1,6 +1,8 @@
 package com.nexsync.storagenode.di
 
 import android.content.Context
+import android.content.SharedPreferences
+import androidx.preference.PreferenceManager
 import com.nexsync.storagenode.data.db.AppDatabase
 import com.nexsync.storagenode.data.repositories.AuthorizedDeviceRepositoryImpl
 import com.nexsync.storagenode.data.repositories.DeviceCredentialsRepositoryImpl
@@ -12,20 +14,19 @@ import com.nexsync.storagenode.data.repositories.StorageDirectoryRepositoryImpl
 import com.nexsync.storagenode.data.repositories.StorageFileRepositoryImpl
 import com.nexsync.storagenode.data.repositories.StorageNodeRepositoryImpl
 import com.nexsync.storagenode.data.storage.SafStorageAdapter
-import com.nexsync.storagenode.domain.repositories.AuthorizedDeviceRepository
-import com.nexsync.storagenode.domain.repositories.DeviceCredentialsRepository
-import com.nexsync.storagenode.domain.repositories.FileTransferRepository
-import com.nexsync.storagenode.domain.repositories.PairingChallengeRepository
-import com.nexsync.storagenode.domain.repositories.PendingOperationRepository
-import com.nexsync.storagenode.domain.repositories.ServerStateRepository
-import com.nexsync.storagenode.domain.repositories.StorageDirectoryRepository
-import com.nexsync.storagenode.domain.repositories.StorageFileRepository
-import com.nexsync.storagenode.domain.repositories.StorageNodeRepository
-import com.nexsync.storagenode.domain.storage.StorageAdapter
-import com.nexsync.storagenode.domain.storage.StreamConfig
+import com.nexsync.storagednode.domain.repositories.AuthorizedDeviceRepository
+import com.nexsync.storagednode.domain.repositories.DeviceCredentialsRepository
+import com.nexsync.storagednode.domain.repositories.FileTransferRepository
+import com.nexsync.storagednode.domain.repositories.PairingChallengeRepository
+import com.nexsync.storagednode.domain.repositories.PendingOperationRepository
+import com.nexsync.storagednode.domain.repositories.ServerStateRepository
+import com.nexsync.storagednode.domain.repositories.StorageDirectoryRepository
+import com.nexsync.storagednode.domain.repositories.StorageFileRepository
+import com.nexsync.storagednode.domain.repositories.StorageNodeRepository
+import com.nexsync.storagednode.domain.storage.StorageAdapter
+import com.nexsync.storagednode.domain.storage.StreamConfig
 import dagger.Module
 import dagger.Provides
-import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
@@ -33,6 +34,7 @@ import javax.inject.Singleton
 @Module
 @InstallIn(SingletonComponent::class)
 object DatabaseModule {
+
     
     @Provides
     @Singleton
@@ -123,7 +125,10 @@ object RepositoryModule {
 @Module
 @InstallIn(SingletonComponent::class)
 object StorageModule {
-    
+
+    private const val PREF_ROOT_TREE_URI = "root_tree_uri"
+    private const val DEFAULT_ROOT_TREE_URI = "content://com.android.providers.media.documents/tree/primary%3A"
+
     @Provides
     @Singleton
     fun provideStreamConfig(): StreamConfig {
@@ -134,16 +139,28 @@ object StorageModule {
             writeTimeoutMs = 30000L
         )
     }
-    
+
+    @Provides
+    @Singleton
+    fun provideSharedPreferences(@ApplicationContext context: Context): SharedPreferences {
+        return PreferenceManager.getDefaultSharedPreferences(context)
+    }
+
+    @Provides
+    @Singleton
+    fun provideRootTreeUri(prefs: SharedPreferences): String {
+        return prefs.getString(PREF_ROOT_TREE_URI, DEFAULT_ROOT_TREE_URI)
+    }
+
     @Provides
     @Singleton
     fun provideStorageAdapter(
         @ApplicationContext context: Context,
+        rootTreeUri: String,
         streamConfig: StreamConfig
     ): StorageAdapter {
-        // TODO: In Sprint 4, get rootTreeUri from preferences/pairing
-        // For now, using placeholder
-        val rootTreeUri = "content://com.android.providers.media.documents/tree/primary%3A"
+        // TODO: In a future sprint, persist rootTreeUri via pairing UI / preferences
+        // For now, using provided value (default or previously persisted)
         return SafStorageAdapter(
             context = context,
             rootTreeUri = rootTreeUri,
