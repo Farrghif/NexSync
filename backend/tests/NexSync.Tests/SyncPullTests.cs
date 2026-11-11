@@ -17,8 +17,8 @@ public sealed class SyncPullTests
         await _factory.InitializeAsync();
         _alice = new ApiClient(_factory.CreateClient());
         _bob = new ApiClient(_factory.CreateClient());
-        await _alice.RegisterAsync("sync-alice@nexsync.dev", "password123", "Alice");
-        await _bob.RegisterAsync("sync-bob@nexsync.dev", "password123", "Bob");
+        await _alice.RegisterAsync("sync-alice@nexsync.dev", "Password123!", "Alice");
+        await _bob.RegisterAsync("sync-bob@nexsync.dev", "Password123!", "Bob");
         _alice.DeviceId = await RegisterDeviceAsync(_alice, "Alice Laptop");
         _bob.DeviceId = await RegisterDeviceAsync(_bob, "Bob Phone");
     }
@@ -30,7 +30,7 @@ public sealed class SyncPullTests
     {
         var req = new HttpRequestMessage(HttpMethod.Post, "/api/devices")
         {
-            Content = JsonContent.Create(new { name, platform = "Windows" })
+            Content = JsonContent.Create(new { name, platform = "Desktop" })
         };
         req.Headers.Add("X-Operation-Id", Guid.NewGuid().ToString());
         var res = await client.SendRawAsync(req);
@@ -152,7 +152,7 @@ public sealed class SyncPullTests
     public async Task Pull_RevokedDevice_Returns403()
     {
         var doomed = new ApiClient(_factory.CreateClient());
-        await doomed.RegisterAsync("sync-doomed@nexsync.dev", "password123", "Doomed");
+        await doomed.RegisterAsync("sync-doomed@nexsync.dev", "Password123!", "Doomed");
         doomed.DeviceId = await RegisterDeviceAsync(doomed, "Doomed PC");
         await using (var scope = _factory.Services.CreateAsyncScope())
         {
@@ -213,7 +213,7 @@ public sealed class SyncPullTests
     public async Task Pull_ForeignDevice_Returns403()
     {
         var other = new ApiClient(_factory.CreateClient());
-        await other.RegisterAsync("sync-foreign@nexsync.dev", "password123", "Foreign");
+        await other.RegisterAsync("sync-foreign@nexsync.dev", "Password123!", "Foreign");
         var foreignId = await RegisterDeviceAsync(other, "Foreign Dev");
         _alice.DeviceId = foreignId;
         var (res, _) = await _alice.GetAsync("/api/sync/pull?since=0&until=10&limit=10");
@@ -231,7 +231,7 @@ public sealed class SyncPullTests
     public async Task Pull_MissingDevice_Returns400()
     {
         var naked = new ApiClient(_factory.CreateClient());
-        await naked.RegisterAsync("sync-naked@nexsync.dev", "password123", "Naked");
+        await naked.RegisterAsync("sync-naked@nexsync.dev", "Password123!", "Naked");
         var (res, _) = await naked.GetAsync("/api/sync/pull?since=0&until=100&limit=500");
         Assert.AreEqual(HttpStatusCode.BadRequest, res.StatusCode);
     }

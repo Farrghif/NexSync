@@ -13,7 +13,7 @@ public sealed class FolderCrudTests
     {
         await _factory.InitializeAsync();
         _client = new ApiClient(_factory.CreateClient());
-        await _client.RegisterAsync("folder@nexsync.dev", "password123", "Folder User");
+        await _client.RegisterAsync("folder@nexsync.dev", "Password123!", "Folder User");
     }
 
     [TestCleanup]

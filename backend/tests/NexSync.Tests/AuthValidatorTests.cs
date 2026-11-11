@@ -9,13 +9,13 @@ public sealed class AuthValidatorTests
     [TestMethod]
     public void ValidateRegister_AcceptsValidInput()
     {
-        AuthValidator.ValidateRegister("user@nexsync.dev", "password123", "Test User");
+        AuthValidator.ValidateRegister("user@nexsync.dev", "Password123!", "Test User");
     }
 
     [TestMethod]
     public void ValidateRegister_RejectsInvalidEmail()
     {
-        Assert.ThrowsExactly<DomainException>(() => AuthValidator.ValidateRegister("not-an-email", "password123", "Test"));
+        Assert.ThrowsExactly<DomainException>(() => AuthValidator.ValidateRegister("not-an-email", "Password123!", "Test"));
     }
 
     [TestMethod]
@@ -33,7 +33,7 @@ public sealed class AuthValidatorTests
     [TestMethod]
     public void ValidateRegister_RejectsEmptyName()
     {
-        Assert.ThrowsExactly<DomainException>(() => AuthValidator.ValidateRegister("a@b.dev", "password123", " "));
+        Assert.ThrowsExactly<DomainException>(() => AuthValidator.ValidateRegister("a@b.dev", "Password123!", " "));
     }
 }
 

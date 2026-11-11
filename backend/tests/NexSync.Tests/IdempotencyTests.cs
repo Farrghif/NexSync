@@ -19,7 +19,7 @@ public sealed class IdempotencyTests
     {
         await _factory.InitializeAsync();
         _client = new ApiClient(_factory.CreateClient());
-        await _client.RegisterAsync("idem@nexsync.dev", "password123", "Idem User");
+        await _client.RegisterAsync("idem@nexsync.dev", "Password123!", "Idem User");
     }
 
     [TestCleanup]
@@ -171,7 +171,7 @@ public sealed class IdempotencyTests
         Assert.AreEqual(HttpStatusCode.Created, res1.StatusCode);
 
         var other = new ApiClient(_factory.CreateClient());
-        await other.RegisterAsync("crossuser@nexsync.dev", "password123", "Cross User");
+        await other.RegisterAsync("crossuser@nexsync.dev", "Password123!", "Cross User");
         var req2 = new HttpRequestMessage(HttpMethod.Post, "/api/folders") { Content = JsonContent.Create(body) };
         req2.Headers.Add("X-Operation-Id", opId.ToString());
         var res2 = await other.SendRawAsync(req2);

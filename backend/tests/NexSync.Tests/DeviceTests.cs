@@ -16,8 +16,8 @@ public sealed class DeviceTests
         await _factory.InitializeAsync();
         _alice = new ApiClient(_factory.CreateClient());
         _bob = new ApiClient(_factory.CreateClient());
-        await _alice.RegisterAsync("dev-alice@nexsync.dev", "password123", "Alice");
-        await _bob.RegisterAsync("dev-bob@nexsync.dev", "password123", "Bob");
+        await _alice.RegisterAsync("dev-alice@nexsync.dev", "Password123!", "Alice");
+        await _bob.RegisterAsync("dev-bob@nexsync.dev", "Password123!", "Bob");
     }
 
     [TestCleanup]
@@ -35,7 +35,7 @@ public sealed class DeviceTests
     public async Task Register_ThenList_ShowsActive()
     {
         var opId = Guid.NewGuid();
-        var (res, doc) = await RegisterDeviceAsync(_alice, new { name = " Alice Laptop ", platform = "Windows" }, opId);
+        var (res, doc) = await RegisterDeviceAsync(_alice, new { name = " Alice Laptop ", platform = "Desktop" }, opId);
         Assert.AreEqual(HttpStatusCode.Created, res.StatusCode);
         Assert.AreEqual("Alice Laptop", doc!.RootElement.GetProperty("name").GetString());
 
@@ -76,13 +76,13 @@ public sealed class DeviceTests
     [TestMethod]
     public async Task Register_InvalidNameOrPlatform_Returns400()
     {
-        var (r1, _) = await RegisterDeviceAsync(_alice, new { name = "   ", platform = "Windows" }, Guid.NewGuid());
+        var (r1, _) = await RegisterDeviceAsync(_alice, new { name = "   ", platform = "Desktop" }, Guid.NewGuid());
         Assert.AreEqual(HttpStatusCode.BadRequest, r1.StatusCode);
-        var (r2, _) = await RegisterDeviceAsync(_alice, new { name = new string('x', 101), platform = "Windows" }, Guid.NewGuid());
+        var (r2, _) = await RegisterDeviceAsync(_alice, new { name = new string('x', 101), platform = "Desktop" }, Guid.NewGuid());
         Assert.AreEqual(HttpStatusCode.BadRequest, r2.StatusCode);
         var (r3, _) = await RegisterDeviceAsync(_alice, new { name = "PC", platform = "Linux" }, Guid.NewGuid());
         Assert.AreEqual(HttpStatusCode.BadRequest, r3.StatusCode);
-        var (r4, _) = await RegisterDeviceAsync(_alice, new { name = "PC", platform = "Windows" }, null);
+        var (r4, _) = await RegisterDeviceAsync(_alice, new { name = "PC", platform = "Desktop" }, null);
         Assert.AreEqual(HttpStatusCode.BadRequest, r4.StatusCode);
     }
 
@@ -106,7 +106,7 @@ public sealed class DeviceTests
     [TestMethod]
     public async Task OtherUsersDevice_IsInvisible()
     {
-        var (_, doc) = await RegisterDeviceAsync(_alice, new { name = "Alice Secret", platform = "Windows" }, Guid.NewGuid());
+        var (_, doc) = await RegisterDeviceAsync(_alice, new { name = "Alice Secret", platform = "Desktop" }, Guid.NewGuid());
         var id = doc!.RootElement.GetProperty("deviceId").GetGuid();
 
         var (_, bobList) = await _bob.GetAsync("/api/devices");

@@ -19,9 +19,9 @@ public sealed class TwoClientSyncTests
         await _factory.InitializeAsync();
         _desktop = new ApiClient(_factory.CreateClient());
         _web = new ApiClient(_factory.CreateClient());
-        await _desktop.RegisterAsync("e2e@nexsync.dev", "password123", "E2E User");
-        await _web.LoginAsync("e2e@nexsync.dev", "password123");
-        _desktopId = await RegisterDeviceAsync(_desktop, "E2E Desktop", "Windows");
+        await _desktop.RegisterAsync("e2e@nexsync.dev", "Password123!", "E2E User");
+        await _web.LoginAsync("e2e@nexsync.dev", "Password123!");
+        _desktopId = await RegisterDeviceAsync(_desktop, "E2E Desktop", "Desktop");
         _webId = await RegisterDeviceAsync(_web, "Chrome - Windows", "Web");
         _desktop.DeviceId = _desktopId;
         _web.DeviceId = _webId;

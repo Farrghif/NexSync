@@ -19,8 +19,8 @@ public sealed class ManifestTests
         await _factory.InitializeAsync();
         _alice = new ApiClient(_factory.CreateClient());
         _bob = new ApiClient(_factory.CreateClient());
-        await _alice.RegisterAsync("man-alice@nexsync.dev", "password123", "Alice");
-        await _bob.RegisterAsync("man-bob@nexsync.dev", "password123", "Bob");
+        await _alice.RegisterAsync("man-alice@nexsync.dev", "Password123!", "Alice");
+        await _bob.RegisterAsync("man-bob@nexsync.dev", "Password123!", "Bob");
         _alice.DeviceId = await RegisterDeviceAsync(_alice, "Alice Laptop");
         _bob.DeviceId = await RegisterDeviceAsync(_bob, "Bob Phone");
     }
@@ -32,7 +32,7 @@ public sealed class ManifestTests
     {
         var req = new HttpRequestMessage(HttpMethod.Post, "/api/devices")
         {
-            Content = JsonContent.Create(new { name, platform = "Windows" })
+            Content = JsonContent.Create(new { name, platform = "Desktop" })
         };
         req.Headers.Add("X-Operation-Id", Guid.NewGuid().ToString());
         var res = await client.SendRawAsync(req);
@@ -121,7 +121,7 @@ public sealed class ManifestTests
     public async Task Manifest_RequiresValidDevice()
     {
         var naked = new ApiClient(_factory.CreateClient());
-        await naked.RegisterAsync("man-naked@nexsync.dev", "password123", "Naked");
+        await naked.RegisterAsync("man-naked@nexsync.dev", "Password123!", "Naked");
         var (res, _) = await naked.GetAsync("/api/sync/manifest");
         Assert.AreEqual(HttpStatusCode.BadRequest, res.StatusCode);
 
@@ -136,7 +136,7 @@ public sealed class ManifestTests
     public async Task Manifest_RevokedDevice_Returns403()
     {
         var doomed = new ApiClient(_factory.CreateClient());
-        await doomed.RegisterAsync("man-doomed@nexsync.dev", "password123", "Doomed");
+        await doomed.RegisterAsync("man-doomed@nexsync.dev", "Password123!", "Doomed");
         doomed.DeviceId = await RegisterDeviceAsync(doomed, "Doomed PC");
         await using (var scope = _factory.Services.CreateAsyncScope())
         {

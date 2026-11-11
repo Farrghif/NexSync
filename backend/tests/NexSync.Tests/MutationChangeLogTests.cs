@@ -19,7 +19,7 @@ public sealed class MutationChangeLogTests
     {
         await _factory.InitializeAsync();
         _client = new ApiClient(_factory.CreateClient());
-        await _client.RegisterAsync("changelog@nexsync.dev", "password123", "Changelog User");
+        await _client.RegisterAsync("changelog@nexsync.dev", "Password123!", "Changelog User");
     }
 
     [TestCleanup]
@@ -45,7 +45,7 @@ public sealed class MutationChangeLogTests
     {
         var req = new HttpRequestMessage(HttpMethod.Post, "/api/devices")
         {
-            Content = JsonContent.Create(new { name, platform = "Windows" })
+            Content = JsonContent.Create(new { name, platform = "Desktop" })
         };
         req.Headers.Add("X-Operation-Id", Guid.NewGuid().ToString());
         var res = await _client.SendRawAsync(req);
@@ -249,7 +249,7 @@ public sealed class MutationChangeLogTests
     public async Task ForeignDevice_Returns403()
     {
         var other = new ApiClient(_factory.CreateClient());
-        await other.RegisterAsync("other@nexsync.dev", "password123", "Other");
+        await other.RegisterAsync("other@nexsync.dev", "Password123!", "Other");
         var req = new HttpRequestMessage(HttpMethod.Post, "/api/devices")
         {
             Content = JsonContent.Create(new { name = "OtherDev", platform = "Web" })

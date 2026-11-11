@@ -23,7 +23,7 @@ public sealed class WebDeviceFlowTests
     [TestMethod]
     public async Task WebFlow_RegisterLoginDeviceMutate_OriginAttributed()
     {
-        var (regRes, _) = await _client.RegisterAsync("web@nexsync.dev", "password123", "Web User");
+        var (regRes, _) = await _client.RegisterAsync("web@nexsync.dev", "Password123!", "Web User");
         Assert.AreEqual(HttpStatusCode.OK, regRes.StatusCode);
 
         var devReq = new HttpRequestMessage(HttpMethod.Post, "/api/devices")
@@ -53,7 +53,7 @@ public sealed class WebDeviceFlowTests
     [TestMethod]
     public async Task WebFlow_SameBrowserNewUser_GetsOwnDevice()
     {
-        await _client.RegisterAsync("web-a@nexsync.dev", "password123", "User A");
+        await _client.RegisterAsync("web-a@nexsync.dev", "Password123!", "User A");
         var reqA = new HttpRequestMessage(HttpMethod.Post, "/api/devices")
         {
             Content = JsonContent.Create(new { name = "Shared Browser", platform = "Web" })
@@ -64,7 +64,7 @@ public sealed class WebDeviceFlowTests
         var deviceA = docA!.RootElement.GetProperty("deviceId").GetGuid();
 
         var other = new ApiClient(_factory.CreateClient());
-        await other.RegisterAsync("web-b@nexsync.dev", "password123", "User B");
+        await other.RegisterAsync("web-b@nexsync.dev", "Password123!", "User B");
         other.DeviceId = deviceA;
         var (res, _) = await other.GetAsync("/api/sync/pull?since=0&until=10&limit=10");
         Assert.AreEqual(HttpStatusCode.Forbidden, res.StatusCode);
@@ -73,7 +73,7 @@ public sealed class WebDeviceFlowTests
     [TestMethod]
     public async Task WebFlow_RevokedDevice_BlockedWithClearStatus()
     {
-        await _client.RegisterAsync("web-r@nexsync.dev", "password123", "Revoked User");
+        await _client.RegisterAsync("web-r@nexsync.dev", "Password123!", "Revoked User");
         var req = new HttpRequestMessage(HttpMethod.Post, "/api/devices")
         {
             Content = JsonContent.Create(new { name = "Doomed Browser", platform = "Web" })

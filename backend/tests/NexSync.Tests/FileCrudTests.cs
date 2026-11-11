@@ -14,7 +14,7 @@ public sealed class FileCrudTests
     {
         await _factory.InitializeAsync();
         _client = new ApiClient(_factory.CreateClient());
-        await _client.RegisterAsync("file@nexsync.dev", "password123", "File User");
+        await _client.RegisterAsync("file@nexsync.dev", "Password123!", "File User");
     }
 
     [TestCleanup]

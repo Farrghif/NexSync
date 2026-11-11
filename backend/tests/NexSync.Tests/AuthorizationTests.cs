@@ -15,8 +15,8 @@ public sealed class AuthorizationTests
         await _factory.InitializeAsync();
         _alice = new ApiClient(_factory.CreateClient());
         _bob = new ApiClient(_factory.CreateClient());
-        await _alice.RegisterAsync("alice2@nexsync.dev", "password123", "Alice");
-        await _bob.RegisterAsync("bob2@nexsync.dev", "password123", "Bob");
+        await _alice.RegisterAsync("alice2@nexsync.dev", "Password123!", "Alice");
+        await _bob.RegisterAsync("bob2@nexsync.dev", "Password123!", "Bob");
     }
 
     [TestCleanup]

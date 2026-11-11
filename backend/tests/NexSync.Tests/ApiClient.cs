@@ -9,6 +9,8 @@ public sealed class ApiClient(HttpClient http)
     private readonly HttpClient _http = http;
     public string? AccessToken { get; private set; }
     public string? RefreshCookie { get; set; }
+    public string? SessionCookie { get; set; }
+    public string? CsrfToken { get; set; }
     public Guid? DeviceId { get; set; }
 
     private void ApplyDevice(HttpRequestMessage req)
@@ -23,21 +25,41 @@ public sealed class ApiClient(HttpClient http)
     {
         if (AccessToken is not null)
             req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", AccessToken);
-        if (RefreshCookie is not null)
-            req.Headers.Add("Cookie", $"refreshToken={RefreshCookie}");
+        var cookies = new List<string>();
+        if (RefreshCookie is not null) cookies.Add($"refreshToken={RefreshCookie}");
+        if (SessionCookie is not null) cookies.Add($".AspNetCore.Session={SessionCookie}");
+        if (cookies.Count > 0)
+            req.Headers.Add("Cookie", string.Join("; ", cookies));
     }
 
-    private static string? ExtractRefreshCookie(HttpResponseMessage res)
+    private static string? ExtractCookie(HttpResponseMessage res, string name)
     {
         if (!res.Headers.TryGetValues("Set-Cookie", out var values)) return null;
         foreach (var v in values)
         {
             var semi = v.IndexOf(';');
             var pair = semi >= 0 ? v[..semi] : v;
-            if (pair.StartsWith("refreshToken=", StringComparison.Ordinal))
-                return pair["refreshToken=".Length..];
+            if (pair.StartsWith(name + "=", StringComparison.Ordinal))
+                return pair[(name.Length + 1)..];
         }
         return null;
+    }
+
+    private void CaptureState(HttpResponseMessage res, string body)
+    {
+        var cookie = ExtractCookie(res, "refreshToken");
+        if (cookie is not null) RefreshCookie = cookie;
+        var session = ExtractCookie(res, ".AspNetCore.Session");
+        if (session is not null) SessionCookie = session;
+        if (body.Length == 0) return;
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            if (doc.RootElement.ValueKind == JsonValueKind.Object &&
+                doc.RootElement.TryGetProperty("csrfToken", out var token))
+                CsrfToken = token.GetString();
+        }
+        catch (System.Text.Json.JsonException) { }
     }
 
     private async Task<(HttpResponseMessage Res, JsonDocument? Doc)> SendAsync(HttpRequestMessage req)
@@ -51,8 +73,7 @@ public sealed class ApiClient(HttpClient http)
         {
             try { doc = JsonDocument.Parse(body); } catch { }
         }
-        var cookie = ExtractRefreshCookie(res);
-        if (cookie is not null) RefreshCookie = cookie;
+        CaptureState(res, body);
         return (res, doc);
     }
 
@@ -83,7 +104,7 @@ public sealed class ApiClient(HttpClient http)
     public async Task<(HttpResponseMessage, JsonDocument?)> RefreshAsync()
     {
         var req = new HttpRequestMessage(HttpMethod.Post, "/api/auth/refresh");
-        req.Headers.Add("X-CSRF", "1");
+        if (CsrfToken is not null) req.Headers.Add("X-CSRF-Token", CsrfToken);
         var (res, doc) = await SendAsync(req);
         if (res.IsSuccessStatusCode && doc is not null)
             AccessToken = doc.RootElement.GetProperty("accessToken").GetString();
@@ -93,7 +114,7 @@ public sealed class ApiClient(HttpClient http)
     public async Task<HttpResponseMessage> LogoutAsync()
     {
         var req = new HttpRequestMessage(HttpMethod.Post, "/api/auth/logout");
-        req.Headers.Add("X-CSRF", "1");
+        if (CsrfToken is not null) req.Headers.Add("X-CSRF-Token", CsrfToken);
         var (res, _) = await SendAsync(req);
         return res;
     }
@@ -103,8 +124,7 @@ public sealed class ApiClient(HttpClient http)
         ApplyAuth(req);
         ApplyDevice(req);
         var res = await _http.SendAsync(req);
-        var cookie = ExtractRefreshCookie(res);
-        if (cookie is not null) RefreshCookie = cookie;
+        CaptureState(res, await res.Content.ReadAsStringAsync());
         return res;
     }
 
