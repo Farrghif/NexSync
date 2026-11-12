@@ -11,11 +11,16 @@ namespace NexSync.Desktop.Views;
 public static class DesktopDialogs
 {
     private static SolidColorBrush Br(string hex) => new((Color)ColorConverter.ConvertFromString(hex));
-    private static readonly SolidColorBrush BgWhite = Br("#FFFFFF");
-    private static readonly SolidColorBrush BorderLight = Br("#E6E8EF");
-    private static readonly SolidColorBrush Brand = Br("#5B5BD6");
-    private static readonly SolidColorBrush TextDark = Br("#14161D");
-    private static readonly SolidColorBrush TextMuted = Br("#8B90A0");
+    private static bool _dark;
+
+    // Set by StatusView (the only dialog caller) so dialogs follow the active theme.
+    internal static void SetDark(bool dark) => _dark = dark;
+
+    private static SolidColorBrush BgWhite => _dark ? Br("#111827") : Br("#FFFFFF");
+    private static SolidColorBrush BorderLight => _dark ? Br("#3F3F4F") : Br("#E2E8F0");
+    private static SolidColorBrush Brand => Br("#0284C7");
+    private static SolidColorBrush TextDark => _dark ? Br("#F8FAFC") : Br("#0F172A");
+    private static SolidColorBrush TextMuted => _dark ? Br("#A0A0A0") : Br("#64748B");
 
     public static string? Prompt(Window? owner, string title, string prompt, string initialValue = "")
     {

@@ -43,6 +43,10 @@ public sealed class RecoveryService(
         if (manifest.Auth == ReconcileOutcome.AuthFailed || manifest.Auth == ReconcileOutcome.Forbidden)
             return manifest.Auth;
 
+        // Server files this device never had must be downloaded here: the pull cursor
+        // advances past them below, so pull would never deliver them either.
+        await DownloadMissingFilesAsync(manifest, ct);
+
         using var tx = db.BeginTransaction();
         try
         {
@@ -123,6 +127,77 @@ public sealed class RecoveryService(
                 .ToList();
             return new ManifestEntry(root.GetProperty("snapshotCursor").GetInt64(), folders, files, ReconcileOutcome.Converged);
         }
+    }
+
+    // Pull content for manifest files this device never had locally: the cursor is
+    // advanced to the snapshot below, so the pull pipeline would never deliver them.
+    // A path that already has a local row is skipped — that row records the user's
+    // own local deletion, which must propagate to the server, not be resurrected.
+    private async Task DownloadMissingFilesAsync(ManifestEntry manifest, CancellationToken ct)
+    {
+        if (manifest.Files.Count == 0) return;
+        var byId = manifest.Folders.ToDictionary(f => f.Id);
+        var folderPaths = new Dictionary<Guid, string>();
+        foreach (var folder in manifest.Folders)
+        {
+            var resolved = ResolveServerFolderPath(folder, byId);
+            if (resolved is not null) folderPaths[folder.Id] = resolved;
+        }
+
+        foreach (var file in manifest.Files)
+        {
+            string relPath;
+            if (file.FolderId.HasValue)
+            {
+                if (!folderPaths.TryGetValue(file.FolderId.Value, out var parent)) continue;
+                relPath = parent + "/" + file.Name;
+            }
+            else
+            {
+                relPath = file.Name;
+            }
+            try { relPath = LocalPath.Canonicalize(relPath); }
+            catch (ArgumentException) { continue; }
+
+            var full = Path.Combine(localRoot, relPath.Replace('/', Path.DirectorySeparatorChar));
+            if (File.Exists(full)) continue;
+            if (_files.GetByPath(relPath) is not null) continue;
+
+            var tempPath = full + "." + Guid.NewGuid().ToString("N") + ".nexsync-temp";
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(full)!);
+                using (var req = new HttpRequestMessage(HttpMethod.Get, $"api/files/{file.Id}/download"))
+                using (var res = await auth.SendWithAuthAsync(req, allowRefresh: true, ct))
+                {
+                    if (res.StatusCode != HttpStatusCode.OK) continue;
+                    using var net = await res.Content.ReadAsStreamAsync(ct);
+                    using (var tmp = new FileStream(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                        await net.CopyToAsync(tmp, ct);
+                }
+                string actualHash;
+                using (var sha = SHA256.Create())
+                using (var tmp = new FileStream(tempPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+                    actualHash = Convert.ToHexString(sha.ComputeHash(tmp));
+                if (!string.Equals(actualHash, file.Hash, StringComparison.OrdinalIgnoreCase))
+                {
+                    File.Delete(tempPath);
+                    continue;
+                }
+                File.Move(tempPath, full, overwrite: true);
+            }
+            catch (HttpRequestException) { CleanupTemp(tempPath); }
+            catch (TaskCanceledException) { CleanupTemp(tempPath); }
+            catch (IOException) { CleanupTemp(tempPath); }
+            catch (UnauthorizedAccessException) { CleanupTemp(tempPath); }
+        }
+    }
+
+    private static void CleanupTemp(string tempPath)
+    {
+        try { if (File.Exists(tempPath)) File.Delete(tempPath); }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
     }
 
     private sealed record DiskSnapshot(HashSet<string> Directories, Dictionary<string, DiskFile> Files);
@@ -315,6 +390,11 @@ public sealed class RecoveryService(
                 if (MoveFileIfPossible(stale.RelativePath, path))
                     _files.Delete(stale.RelativePath, tx);
             }
+            // Adopt only content that is actually on disk. A row created for a
+            // server file this device never downloaded would later be misread as
+            // "user deleted it locally" and pushed as a server-side delete.
+            var full = Path.Combine(localRoot, path.Replace('/', Path.DirectorySeparatorChar));
+            if (!File.Exists(full)) continue;
             _files.Upsert(new LocalFileRow(path, file.Id, file.FolderId, file.Hash, file.Size, 0, DateTime.UtcNow), tx);
         }
         foreach (var row in _files.GetAll(tx))

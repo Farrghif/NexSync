@@ -14,9 +14,16 @@ public sealed class AppState
     public AppScreen CurrentScreen { get; private set; } = AppScreen.Login;
     public string? LocalRoot { get; private set; }
     public bool SyncRequested { get; private set; }
-    public bool IsDarkMode { get; set; } = false;
+    public bool IsDarkMode { get; private set; } = false;
 
     public event Action? Changed;
+
+    public void SetDarkMode(bool value)
+    {
+        if (IsDarkMode == value) return;
+        IsDarkMode = value;
+        Changed?.Invoke();
+    }
 
     public void GoTo(AppScreen screen)
     {

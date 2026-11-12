@@ -15,6 +15,8 @@ public sealed class DesktopServices : IDisposable
     public AppState State { get; } = new();
     public DesktopAuthService Auth { get; }
     private readonly string _dataDirectory;
+    private readonly string _themePath;
+    private bool _savedDarkMode;
 
     private SyncEngine? _engine;
     private LocalDb? _engineDb;
@@ -35,6 +37,17 @@ public sealed class DesktopServices : IDisposable
         var url = baseUrl ?? Environment.GetEnvironmentVariable("NEXSYNC_API_URL") ?? "http://localhost:5189";
         _dataDirectory = dataDirectory ?? Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "NexSync");
+        _themePath = Path.Combine(_dataDirectory, "theme.txt");
+        try
+        {
+            _savedDarkMode = File.Exists(_themePath) && File.ReadAllText(_themePath).Trim() == "dark";
+        }
+        catch
+        {
+            // Unreadable theme file: start light; the next toggle rewrites it.
+        }
+        // Before Changed is subscribed, so this fires to zero listeners.
+        State.SetDarkMode(_savedDarkMode);
         // First-run: if LocalRoot has not been set yet, auto-pick a default folder
         // so the app works out-of-the-box like Google Drive.
         if (State.LocalRoot is null)
@@ -115,6 +128,18 @@ public sealed class DesktopServices : IDisposable
 
     private void OnStateChanged()
     {
+        if (State.IsDarkMode != _savedDarkMode)
+        {
+            _savedDarkMode = State.IsDarkMode;
+            try
+            {
+                File.WriteAllText(_themePath, _savedDarkMode ? "dark" : "light");
+            }
+            catch
+            {
+                // Best-effort persistence; the next toggle retries the write.
+            }
+        }
         var root = State.LocalRoot;
         if (string.IsNullOrEmpty(root))
             StopEngine();

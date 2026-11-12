@@ -186,6 +186,74 @@ public sealed class RecoveryServiceTests
     }
 
     [TestMethod]
+    public async Task FreshRoot_ManifestFileMissingOnDisk_DownloadedNotDeleted()
+    {
+        var fileId = Guid.NewGuid();
+        var serverBytes = Encoding.UTF8.GetBytes("server-content");
+        var svc = Create(req => req.RequestUri!.AbsolutePath.StartsWith("/api/files/", StringComparison.Ordinal)
+            ? new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(serverBytes) }
+            : Json(HttpStatusCode.OK, new
+            {
+                snapshotCursor = 9L,
+                folders = Array.Empty<object>(),
+                files = new[] { ManifestFile(fileId, "server.txt", null, Sha256Of(serverBytes), serverBytes.Length) }
+            }));
+
+        Assert.AreEqual(ReconcileOutcome.Converged, await svc.ReconcileAsync());
+
+        Assert.IsTrue(File.Exists(Path.Combine(_root, "server.txt")),
+            "A server file missing from a fresh root must be downloaded during reconcile.");
+        var ops = Pending(_db);
+        Assert.AreEqual(0, ops.Count(o => o.OpType == PendingOpType.DeleteFile),
+            "A fresh root must never push a delete for a server file it never had.");
+        Assert.AreEqual(0, ops.Count, "Downloaded server content needs no push op.");
+    }
+
+    [TestMethod]
+    public async Task FreshRoot_ManifestFileDownloadFails_NoDeleteEnqueued()
+    {
+        var fileId = Guid.NewGuid();
+        var svc = Create(req => req.RequestUri!.AbsolutePath.StartsWith("/api/files/", StringComparison.Ordinal)
+            ? new HttpResponseMessage(HttpStatusCode.NotFound)
+            : Json(HttpStatusCode.OK, new
+            {
+                snapshotCursor = 11L,
+                folders = Array.Empty<object>(),
+                files = new[] { ManifestFile(fileId, "undownloaded.txt", null, "ABCDEF", 3) }
+            }));
+
+        Assert.AreEqual(ReconcileOutcome.Converged, await svc.ReconcileAsync());
+
+        var ops = Pending(_db);
+        Assert.AreEqual(0, ops.Count(o => o.OpType == PendingOpType.DeleteFile),
+            "A failed download must leave the server copy alone; the next reconcile retries it.");
+    }
+
+    [TestMethod]
+    public async Task LocallyDeletedFile_DownloadEndpointValid_StillNotResurrected()
+    {
+        var fileId = Guid.NewGuid();
+        var serverBytes = Encoding.UTF8.GetBytes("server-content");
+        SeedFile(_db, "deleted.txt", fileId, hash: Sha256Of(serverBytes));
+        var svc = Create(req => req.RequestUri!.AbsolutePath.StartsWith("/api/files/", StringComparison.Ordinal)
+            ? new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(serverBytes) }
+            : Json(HttpStatusCode.OK, new
+            {
+                snapshotCursor = 13L,
+                folders = Array.Empty<object>(),
+                files = new[] { ManifestFile(fileId, "deleted.txt", null, Sha256Of(serverBytes), serverBytes.Length) }
+            }));
+
+        Assert.AreEqual(ReconcileOutcome.Converged, await svc.ReconcileAsync());
+
+        Assert.IsFalse(File.Exists(Path.Combine(_root, "deleted.txt")),
+            "Reconcile must not resurrect a file the user deleted locally.");
+        var ops = Pending(_db);
+        Assert.AreEqual(1, ops.Count(o => o.OpType == PendingOpType.DeleteFile),
+            "The local deletion must still propagate to the server.");
+    }
+
+    [TestMethod]
     public async Task ManifestFetchFailure_KeepsFlag_PendingAndCursorUntouched()
     {
         SeedFolder(_db, "Keep", Guid.NewGuid());

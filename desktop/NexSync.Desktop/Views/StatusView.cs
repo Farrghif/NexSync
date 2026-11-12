@@ -76,6 +76,7 @@ public sealed class StatusView : UserControl
     private readonly SolidColorBrush Amber;
     private readonly SolidColorBrush SuccessBg;
     private readonly SolidColorBrush AmberBg;
+    private readonly SolidColorBrush DangerBorder;
 
     public sealed class DesktopFileItem
     {
@@ -101,11 +102,13 @@ public sealed class StatusView : UserControl
         TextDark = isDark ? Br("#F8FAFC") : Br("#0F172A");
         TextMuted = isDark ? Br("#A0A0A0") : Br("#64748B");
         Danger = Br("#EF4444");
-        BrandLight = isDark ? Br("#3F3F4F") : Br("#E0F2FE");
-        Success = isDark ? Br("#3F3F4F") : Br("#10B981");
+        BrandLight = isDark ? Br("#0C4A6E") : Br("#E0F2FE");
+        Success = isDark ? Br("#34D399") : Br("#10B981");
         Amber = isDark ? Br("#F59E0B") : Br("#F59E0B"); // amber stays similar
-        SuccessBg = isDark ? Br("#3F3F4F") : Br("#ECFDF5");
-        AmberBg = isDark ? Br("#3F3F4F") : Br("#FEF3C7");
+        SuccessBg = isDark ? Br("#064E3B") : Br("#ECFDF5");
+        AmberBg = isDark ? Br("#451A03") : Br("#FEF3C7");
+        DangerBorder = isDark ? Br("#7F1D1D") : Br("#FECACA");
+        DesktopDialogs.SetDark(isDark);
         _recentPaths.Capacity = 10;
 
         LoadLocalPreferences();
@@ -597,7 +600,7 @@ public sealed class StatusView : UserControl
         Grid.SetColumn(backBorder, 0);
         footer.Children.Add(backBorder);
 
-        var signOutBorder = new Border { Background = BgWhite, BorderBrush = Br("#FECACA"), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(8), Margin = new Thickness(6, 0, 0, 0) };
+        var signOutBorder = new Border { Background = BgWhite, BorderBrush = DangerBorder, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(8), Margin = new Thickness(6, 0, 0, 0) };
         var signOut = new Button
         {
             Content = "Sign out",
@@ -633,6 +636,24 @@ public sealed class StatusView : UserControl
         Grid.SetColumn(signOutBorder, 1);
         footer.Children.Add(signOutBorder);
         stack.Children.Add(footer);
+
+        // Theme toggle, below Change folder / Sign out
+        var themeBorder = new Border { Background = BgWhite, BorderBrush = BorderLight, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(8), Margin = new Thickness(0, 8, 0, 0) };
+        var themeBtn = new Button
+        {
+            Content = isDark ? "☀ Light mode" : "🌙 Dark mode",
+            Background = Brushes.Transparent,
+            BorderThickness = new Thickness(0),
+            Foreground = TextDark,
+            FontWeight = FontWeights.SemiBold,
+            FontSize = 12,
+            Padding = new Thickness(12, 10, 12, 10),
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            Cursor = Cursors.Hand
+        };
+        themeBtn.Click += (_, _) => state.SetDarkMode(!isDark);
+        themeBorder.Child = themeBtn;
+        stack.Children.Add(themeBorder);
 
         _syncScroll.Content = stack;
         Grid.SetRow(_syncScroll, 2);
@@ -1429,7 +1450,7 @@ public sealed class StatusView : UserControl
             Content = text,
             Background = isDanger ? Br("#FEE2E2") : BgWhite,
             Foreground = isDanger ? Danger : TextDark,
-            BorderBrush = isDanger ? Br("#FECACA") : BorderLight,
+            BorderBrush = isDanger ? DangerBorder : BorderLight,
             BorderThickness = new Thickness(1),
             FontWeight = FontWeights.SemiBold,
             FontSize = 11,
