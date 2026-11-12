@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Json;
@@ -20,6 +21,9 @@ public sealed class DesktopAuthService : IDisposable
     private readonly string _configPath;
     private readonly SemaphoreSlim _refreshLock = new(1, 1);
     private string? _accessToken;
+    // Session-bound CSRF token returned by the backend on every response; must be sent
+    // back (with the same session cookie) on state-changing auth calls.
+    private string? _csrfToken;
 
     public string? DeviceId { get; private set; }
     public UserInfo? CurrentUser { get; private set; }
@@ -106,7 +110,15 @@ public sealed class DesktopAuthService : IDisposable
         ApplyCookies(request);
         var response = await _http.SendAsync(request, ct);
         StoreCookiesFromResponse(response);
+        if (response.Headers.TryGetValues("X-CSRF-Token", out var csrfValues))
+            _csrfToken = csrfValues.FirstOrDefault();
         return response;
+    }
+
+    private void AddCsrfHeader(HttpRequestMessage request)
+    {
+        if (_csrfToken is not null)
+            request.Headers.Add("X-CSRF-Token", _csrfToken);
     }
 
     public async Task<UserInfo> LoginAsync(string email, string password, CancellationToken ct = default)
@@ -138,7 +150,7 @@ public sealed class DesktopAuthService : IDisposable
         try
         {
             using var req = new HttpRequestMessage(HttpMethod.Post, "api/auth/logout");
-            req.Headers.Add("X-CSRF", "1");
+            AddCsrfHeader(req);
             using var res = await SendWithAuthAsync(req, allowRefresh: false, ct);
             res.EnsureSuccessStatusCode();
         }
@@ -208,7 +220,7 @@ public sealed class DesktopAuthService : IDisposable
         try
         {
             using var req = new HttpRequestMessage(HttpMethod.Post, "api/auth/refresh");
-            req.Headers.Add("X-CSRF", "1");
+            AddCsrfHeader(req);
             using var res = await SendAsync(req, ct);
             if (!res.IsSuccessStatusCode)
                 return false;

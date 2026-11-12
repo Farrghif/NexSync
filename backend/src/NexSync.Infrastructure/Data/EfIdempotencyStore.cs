@@ -26,7 +26,8 @@ public class EfIdempotencyStore(AppDbContext context) : IIdempotencyStore
             DeviceId = deviceId,
             RequestFingerprint = fingerprint,
             ResultStatus = resultStatus,
-            ResultPayload = resultPayload,
+            // jsonb rejects '' (Postgres 22P02); replay treats null and empty alike.
+            ResultPayload = string.IsNullOrEmpty(resultPayload) ? null : resultPayload,
             EntityId = entityId,
             Sequence = sequence,
             CreatedAt = DateTime.UtcNow

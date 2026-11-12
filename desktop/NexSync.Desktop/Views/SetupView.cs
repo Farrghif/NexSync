@@ -9,18 +9,31 @@ namespace NexSync.Desktop.Views;
 public sealed class SetupView : UserControl
 {
     private static SolidColorBrush Br(string hex) => new((Color)ColorConverter.ConvertFromString(hex));
-    private static readonly SolidColorBrush BgLight = Br("#F8FAFC");
-    private static readonly SolidColorBrush BgWhite = Br("#FFFFFF");
-    private static readonly SolidColorBrush BorderLight = Br("#E2E8F0");
-    private static readonly SolidColorBrush BorderInput = Br("#CBD5E1");
-    private static readonly SolidColorBrush Brand = Br("#0284C7");
-    private static readonly SolidColorBrush TextDark = Br("#0F172A");
-    private static readonly SolidColorBrush TextMuted = Br("#64748B");
-    private static readonly SolidColorBrush Danger = Br("#EF4444");
-    private static readonly SolidColorBrush Success = Br("#10B981");
+    private readonly AppState _state;
+    private readonly SolidColorBrush BgLight;
+    private readonly SolidColorBrush BgWhite;
+    private readonly SolidColorBrush BorderLight;
+    private readonly SolidColorBrush BorderInput;
+    private readonly SolidColorBrush Brand;
+    private readonly SolidColorBrush TextDark;
+    private readonly SolidColorBrush TextMuted;
+    private readonly SolidColorBrush Danger;
+    private readonly SolidColorBrush Success;
 
     public SetupView(AppState state, Func<string, SetupService> setups)
     {
+        _state = state;
+        var isDark = _state.IsDarkMode;
+        BgLight = isDark ? Br("#18181B") : Br("#F8FAFC");
+        BgWhite = isDark ? Br("#111827") : Br("#FFFFFF");
+        BorderLight = isDark ? Br("#3F3F4F") : Br("#E2E8F0");
+        BorderInput = isDark ? Br("#3F3F4F") : Br("#CBD5E1");
+        Brand = Br("#0284C7"); // brand color unchanged in both themes
+        TextDark = isDark ? Br("#F8FAFC") : Br("#0F172A");
+        TextMuted = isDark ? Br("#A0A0A0") : Br("#64748B");
+        Danger = Br("#EF4444");
+        Success = isDark ? Br("#10B981") : Br("#10B981");
+
         Background = BgLight;
         FontFamily = new FontFamily("Segoe UI");
 

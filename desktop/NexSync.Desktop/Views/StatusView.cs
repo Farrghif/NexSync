@@ -64,18 +64,18 @@ public sealed class StatusView : UserControl
     private readonly DispatcherTimer _refreshTimer;
 
     private static SolidColorBrush Br(string hex) => new((Color)ColorConverter.ConvertFromString(hex));
-    private static readonly SolidColorBrush BgLight = Br("#F8FAFC");
-    private static readonly SolidColorBrush BgWhite = Br("#FFFFFF");
-    private static readonly SolidColorBrush BorderLight = Br("#E2E8F0");
-    private static readonly SolidColorBrush Brand = Br("#0284C7");
-    private static readonly SolidColorBrush BrandLight = Br("#E0F2FE");
-    private static readonly SolidColorBrush TextDark = Br("#0F172A");
-    private static readonly SolidColorBrush TextMuted = Br("#64748B");
-    private static readonly SolidColorBrush Danger = Br("#EF4444");
-    private static readonly SolidColorBrush Success = Br("#10B981");
-    private static readonly SolidColorBrush Amber = Br("#F59E0B");
-    private static readonly SolidColorBrush SuccessBg = Br("#ECFDF5");
-    private static readonly SolidColorBrush AmberBg = Br("#FEF3C7");
+    private readonly SolidColorBrush BgLight;
+    private readonly SolidColorBrush BgWhite;
+    private readonly SolidColorBrush BorderLight;
+    private readonly SolidColorBrush Brand;
+    private readonly SolidColorBrush TextDark;
+    private readonly SolidColorBrush TextMuted;
+    private readonly SolidColorBrush Danger;
+    private readonly SolidColorBrush BrandLight;
+    private readonly SolidColorBrush Success;
+    private readonly SolidColorBrush Amber;
+    private readonly SolidColorBrush SuccessBg;
+    private readonly SolidColorBrush AmberBg;
 
     public sealed class DesktopFileItem
     {
@@ -93,14 +93,20 @@ public sealed class StatusView : UserControl
     {
         _state = state;
         _auth = auth;
-        _currentDirectory = !string.IsNullOrWhiteSpace(state.LocalRoot) && Directory.Exists(state.LocalRoot)
-            ? state.LocalRoot!
-            : Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-
-        var dataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "NexSync");
-        Directory.CreateDirectory(dataDir);
-        _favFile = Path.Combine(dataDir, "desktop_favorites.json");
-        _recentFile = Path.Combine(dataDir, "desktop_recent.json");
+        var isDark = _state.IsDarkMode;
+        BgLight = isDark ? Br("#18181B") : Br("#F8FAFC");
+        BgWhite = isDark ? Br("#111827") : Br("#FFFFFF");
+        BorderLight = isDark ? Br("#3F3F4F") : Br("#E2E8F0");
+        Brand = Br("#0284C7"); // brand color unchanged in both themes
+        TextDark = isDark ? Br("#F8FAFC") : Br("#0F172A");
+        TextMuted = isDark ? Br("#A0A0A0") : Br("#64748B");
+        Danger = Br("#EF4444");
+        BrandLight = isDark ? Br("#3F3F4F") : Br("#E0F2FE");
+        Success = isDark ? Br("#3F3F4F") : Br("#10B981");
+        Amber = isDark ? Br("#F59E0B") : Br("#F59E0B"); // amber stays similar
+        SuccessBg = isDark ? Br("#3F3F4F") : Br("#ECFDF5");
+        AmberBg = isDark ? Br("#3F3F4F") : Br("#FEF3C7");
+        _recentPaths.Capacity = 10;
 
         LoadLocalPreferences();
 
@@ -771,7 +777,7 @@ public sealed class StatusView : UserControl
         ApplyFilters();
     }
 
-    private static void UpdatePillState(Border pill, bool active)
+    private void UpdatePillState(Border pill, bool active)
     {
         pill.Background = active ? Brand : BgWhite;
         pill.BorderBrush = active ? Brand : BorderLight;
@@ -1416,7 +1422,7 @@ public sealed class StatusView : UserControl
         };
     }
 
-    private static Button CreateSmallBtn(string text, Action onClick, bool isDanger = false)
+    private Button CreateSmallBtn(string text, Action onClick, bool isDanger = false)
     {
         var btn = new Button
         {
