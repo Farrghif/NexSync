@@ -35,6 +35,12 @@ public sealed class DesktopServices : IDisposable
         var url = baseUrl ?? Environment.GetEnvironmentVariable("NEXSYNC_API_URL") ?? "http://localhost:5189";
         _dataDirectory = dataDirectory ?? Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "NexSync");
+        // First-run: if LocalRoot has not been set yet, auto-pick a default folder
+        // so the app works out-of-the-box like Google Drive.
+        if (State.LocalRoot is null)
+        {
+            State.SetLocalRoot(_dataDirectory);
+        }
         Auth = handler is null
             ? new DesktopAuthService(url, _dataDirectory)
             : new DesktopAuthService(url, _dataDirectory, handler);
