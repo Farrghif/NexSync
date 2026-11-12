@@ -5,6 +5,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using NexSync.Desktop.Auth;
+using System.IO;
 
 namespace NexSync.Desktop.Views;
 
@@ -294,7 +295,12 @@ public sealed class LoginView : UserControl
                 var pwd = passwordVisible.Visibility == Visibility.Visible ? passwordVisible.Text : password.Password;
                 await auth.LoginAsync(email.Text.Trim(), pwd);
                 await auth.EnsureDeviceRegisteredAsync(Environment.MachineName + " (Windows)");
-                state.GoTo(AppScreen.Setup);
+                // If a local sync folder is already configured (auto-default or previously set),
+                // go straight to the file explorer; otherwise show the folder-pick setup.
+                if (!string.IsNullOrWhiteSpace(state.LocalRoot) && Directory.Exists(state.LocalRoot))
+                    state.GoTo(AppScreen.Status);
+                else
+                    state.GoTo(AppScreen.Setup);
             }
             catch (UnauthorizedException ex)
             {
