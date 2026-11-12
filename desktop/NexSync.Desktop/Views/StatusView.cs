@@ -8,8 +8,10 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Threading;
 using Microsoft.Win32;
 using NexSync.Desktop.Auth;
+using NexSync.Desktop.Sync;
 
 namespace NexSync.Desktop.Views;
 
@@ -57,6 +59,9 @@ public sealed class StatusView : UserControl
 
     private readonly string _favFile;
     private readonly string _recentFile;
+
+    private readonly Action _onStateChanged;
+    private readonly DispatcherTimer _refreshTimer;
 
     private static SolidColorBrush Br(string hex) => new((Color)ColorConverter.ConvertFromString(hex));
     private static readonly SolidColorBrush BgLight = Br("#F8FAFC");
@@ -612,6 +617,7 @@ public sealed class StatusView : UserControl
             }
             finally
             {
+                state.SetLocalRoot(null);
                 state.GoTo(AppScreen.Login);
                 signOut.IsEnabled = true;
                 signOutBorder.Opacity = 1;
@@ -660,7 +666,7 @@ public sealed class StatusView : UserControl
         };
 
         // State handlers
-        state.Changed += () =>
+        _onStateChanged = () =>
         {
             if (state.SyncRequested)
             {
@@ -670,6 +676,16 @@ public sealed class StatusView : UserControl
             RefreshSyncState();
             RefreshFileList();
         };
+        state.Changed += _onStateChanged;
+
+        // Background sync writes to the local folder; pick the changes up without a full re-render.
+        _refreshTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
+        _refreshTimer.Tick += (_, _) =>
+        {
+            RefreshFileList(keepSelection: true);
+            RefreshSyncState();
+        };
+        _refreshTimer.Start();
 
         RefreshSyncState();
         AppendLog("Ready.");
@@ -677,6 +693,14 @@ public sealed class StatusView : UserControl
             AppendLog($"Local folder: {state.LocalRoot}");
 
         RefreshFileList();
+    }
+
+    // Called by MainWindow before this view is replaced: stop the timer and the state
+    // subscription, otherwise every re-render leaves a ticking handler behind.
+    public void Detach()
+    {
+        _state.Changed -= _onStateChanged;
+        _refreshTimer.Stop();
     }
 
     // --- Tab Navigation ---
@@ -802,6 +826,7 @@ public sealed class StatusView : UserControl
             foreach (var d in dirInfo.GetDirectories().OrderBy(x => x.Name))
             {
                 if ((d.Attributes & FileAttributes.Hidden) != 0) continue;
+                if (d.Name.Equals(FolderWatcherService.InternalDirName, StringComparison.OrdinalIgnoreCase)) continue;
                 items.Add(new DesktopFileItem
                 {
                     FullPath = d.FullName,

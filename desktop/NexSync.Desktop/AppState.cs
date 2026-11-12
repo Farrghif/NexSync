@@ -23,7 +23,7 @@ public sealed class AppState
         Changed?.Invoke();
     }
 
-    public void SetLocalRoot(string path)
+    public void SetLocalRoot(string? path)
     {
         LocalRoot = path;
         Changed?.Invoke();

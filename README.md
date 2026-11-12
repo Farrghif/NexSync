@@ -149,7 +149,7 @@ dotnet ef database update --project backend/src/NexSync.Infrastructure --startup
 ```powershell
 dotnet run --project backend/src/NexSync.API
 # http://localhost:5189 (launch profile "http")
-# atau http://localhost:5000 untuk proxy Vite
+# atau http://localhost:5189 untuk proxy Vite
 ```
 
 ### 4. Jalankan web
@@ -199,7 +199,7 @@ dotnet build android/NexSync.Android.csproj -t:Run -f net10.0-android
 
 | Variable | Default | Deskripsi |
 |----------|---------|-----------|
-| `NEXSYNC_API_URL` | `http://localhost:5000` | Base URL API (desktop & web proxy) |
+| `NEXSYNC_API_URL` | `http://localhost:5189` | Base URL API desktop (web proxy dapat memakai port berbeda) |
 
 Buat file `.env` di `web/` bila perlu override:
 

@@ -15,7 +15,7 @@ public class DevicesController(IDeviceService devices, IIdempotencyStore idempot
 {
     private static readonly HashSet<string> ValidPlatforms = new(StringComparer.OrdinalIgnoreCase)
     {
-        "Web", "Desktop", "Android", "iOS"
+        "Web", "Windows", "Desktop", "Android", "iOS"
     };
 
     private Guid UserId

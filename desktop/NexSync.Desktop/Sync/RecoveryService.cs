@@ -360,7 +360,11 @@ public sealed class RecoveryService(
         {
             var row = _folders.GetByPath(dir, tx);
             if (row is null)
+            {
                 _folders.Upsert(new LocalFolderRow(dir, null, ParentOf(dir), 0, DateTime.UtcNow), tx);
+                _pending.Enqueue(new PendingOperationRow(Guid.NewGuid(), PendingOpType.CreateFolder,
+                    dir, null, null, null, 0, PendingOpStatus.Pending, DateTime.UtcNow), tx);
+            }
             else if (row.ServerFolderId is null)
                 _pending.Enqueue(new PendingOperationRow(Guid.NewGuid(), PendingOpType.CreateFolder,
                     dir, null, null, null, 0, PendingOpStatus.Pending, DateTime.UtcNow), tx);

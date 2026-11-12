@@ -108,7 +108,20 @@ public sealed class FolderWatcherService : IDisposable
     {
         var payload = (PendingPath)state!;
         Cancel(payload.FullPath);
-        ProcessPathInternal(payload.FullPath, payload.OldFullPath);
+        try
+        {
+            ProcessPathInternal(payload.FullPath, payload.OldFullPath);
+        }
+        catch (ObjectDisposedException) when (_disposed)
+        {
+            // Shutdown raced the debounce timer; nothing left to do.
+        }
+        catch (Exception)
+        {
+            // A timer callback must not take the process down; ask for a reconcile instead.
+            RecoveryRequired = true;
+            RecoveryRequested?.Invoke();
+        }
     }
 
     private void ProcessPathInternal(string fullPath, string? oldFullPath = null)

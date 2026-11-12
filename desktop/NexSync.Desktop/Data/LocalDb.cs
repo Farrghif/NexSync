@@ -11,9 +11,11 @@ public sealed class LocalDb : IDisposable
     private bool _disposed;
 
     public SqliteConnection Connection => _connection;
+    public string DatabasePath { get; }
 
     public LocalDb(string databasePath)
     {
+        DatabasePath = databasePath;
         var dir = System.IO.Path.GetDirectoryName(databasePath);
         if (!string.IsNullOrEmpty(dir))
             System.IO.Directory.CreateDirectory(dir);

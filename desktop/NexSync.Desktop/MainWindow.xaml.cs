@@ -33,6 +33,8 @@ public partial class MainWindow : System.Windows.Window
 
     private void Render()
     {
+        if (((ContentControl)Content).Content is StatusView old)
+            old.Detach();
         WpfUserControl view = _services.State.CurrentScreen switch
         {
             AppScreen.Login => new LoginView(_services.State, _services.Auth),

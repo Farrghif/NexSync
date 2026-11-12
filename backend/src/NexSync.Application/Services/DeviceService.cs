@@ -21,7 +21,7 @@ public class DeviceService(
             throw new DomainException("Device name must be 1-100 characters.");
         var pf = (platform ?? "").Trim();
         if (!Enum.GetNames<DevicePlatform>().Any(n => string.Equals(n, pf, StringComparison.OrdinalIgnoreCase)))
-            throw new DomainException("Platform must be one of: Windows, Android, Web.");
+            throw new DomainException("Platform must be one of: Windows, Desktop, Android, Web, iOS.");
         var parsed = Enum.Parse<DevicePlatform>(pf, ignoreCase: true);
         var fingerprint = RequestFingerprint.ForDeviceRegistration(trimmed, parsed.ToString());
         var mutation = new MutationContext(operationId, fingerprint, StatusCodes201);

@@ -61,7 +61,7 @@ npm run build:web             # atau: npm run build --prefix web  (tsc + vite)
 # cd web; npm install; npm run dev
 ```
 
-- Dev server mem-proxy `/api` → `http://localhost:5000` (lihat `web/vite.config.ts`).
+- Dev server mem-proxy `/api` → `http://localhost:5189` (lihat `web/vite.config.ts`).
   Untuk dev lokal, samakan port API (`NEXSYNC_API_URL`) atau jalankan API di 5000.
 - Setelah login, web mendaftarkan device `Web` (`ensureWebDevice` di
   `web/src/api/auth.ts`) dan mengirim `X-Device-Id` + `X-Operation-Id`
@@ -79,7 +79,7 @@ dotnet run --project desktop/NexSync.Desktop
   Watcher mengabaikan `.nexsync\` dan `*.nexsync-temp`.
 - Folder non-empty wajib pilihan eksplisit: empty (ditolak bila berisi) atau
   import (enqueue fresh `Create`, aditif, tabrakan nama → 409).
-- Env yang didukung: `NEXSYNC_API_URL` (default `http://localhost:5000`).
+- Env yang didukung: `NEXSYNC_API_URL` (default desktop `http://localhost:5189`).
 
 ## 6. Verification (gates)
 

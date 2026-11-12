@@ -355,6 +355,29 @@ public sealed class RecoveryServiceTests
     }
 
     [TestMethod]
+    public async Task LocalOnlyDiskFolder_NeverSeenBefore_EnqueuesCreateFolder()
+    {
+        // Folder exists on disk with no local row and no server entry - the exact
+        // state after files are added while the app is closed.
+        Directory.CreateDirectory(Path.Combine(_root, "Offline"));
+        var svc = Create(_ => Json(HttpStatusCode.OK, new
+        {
+            snapshotCursor = 33L,
+            folders = Array.Empty<object>(),
+            files = Array.Empty<object>()
+        }));
+
+        Assert.AreEqual(ReconcileOutcome.Converged, await svc.ReconcileAsync());
+
+        var row = new LocalFolderRepository(_db.Connection).GetByPath("Offline");
+        Assert.IsNotNull(row);
+        Assert.IsNull(row.ServerFolderId);
+        var ops = Pending(_db);
+        Assert.AreEqual(1, ops.Count(o => o.OpType == PendingOpType.CreateFolder && o.RelPath == "Offline"),
+            "A folder created while the app was closed must be enqueued for push.");
+    }
+
+    [TestMethod]
     public async Task ServerMovedFolder_UpdatesRow_NoDuplicateOp()
     {
         var folderId = Guid.NewGuid();

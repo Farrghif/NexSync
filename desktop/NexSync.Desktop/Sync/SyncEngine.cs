@@ -16,6 +16,7 @@ public sealed class SyncEngine : IDisposable
     public SyncCoordinator Coordinator { get; }
     public RecoveryService Recovery { get; }
     public FolderWatcherService Watcher { get; }
+    private readonly LocalDb _watcherDb;
 
     public SyncEngine(LocalDb db, DesktopAuthService auth, string localRoot)
     {
@@ -28,7 +29,10 @@ public sealed class SyncEngine : IDisposable
         Pull = new PullPipeline(db, Queue, auth, localRoot, Suppression, Conflicts);
         Coordinator = new SyncCoordinator(db, Queue, Push, conflicts: Conflicts);
         Recovery = new RecoveryService(db, Queue, auth, localRoot);
-        Watcher = new FolderWatcherService(localRoot, db, Suppression);
+        // Watcher callbacks run on timer threads; a second WAL connection keeps them
+        // off the main connection while the sync cycle has a transaction open.
+        _watcherDb = new LocalDb(db.DatabasePath);
+        Watcher = new FolderWatcherService(localRoot, _watcherDb, Suppression);
         Watcher.RecoveryRequested += OnWatcherRecoveryRequested;
     }
 
@@ -40,6 +44,7 @@ public sealed class SyncEngine : IDisposable
     {
         Watcher.RecoveryRequested -= OnWatcherRecoveryRequested;
         Watcher.Dispose();
+        _watcherDb.Dispose();
     }
 }
 
