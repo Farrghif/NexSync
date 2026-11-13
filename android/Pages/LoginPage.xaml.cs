@@ -10,23 +10,18 @@ public partial class LoginPage : ContentPage
     {
         InitializeComponent();
         _auth = auth;
-        ServerUrlEntry.Text = ApiConfig.BaseUrl;
     }
 
     private async void OnSignInClicked(object sender, EventArgs e)
     {
         var email = EmailEntry.Text?.Trim();
         var password = PasswordEntry.Text;
-        var server = ServerUrlEntry.Text?.Trim();
 
         if (string.IsNullOrWhiteSpace(email) || string.IsNullOrWhiteSpace(password))
         {
             ShowError("Please enter email and password.");
             return;
         }
-
-        if (!string.IsNullOrWhiteSpace(server))
-            ApiConfig.BaseUrl = server;
 
         SetBusy(true);
         try
@@ -67,7 +62,6 @@ public partial class LoginPage : ContentPage
         SignInBtn.Text = busy ? "" : "Sign In";
         BusyIndicator.IsRunning = busy;
         BusyIndicator.IsVisible = busy;
-        ServerUrlEntry.IsEnabled = !busy;
         EmailEntry.IsEnabled = !busy;
         PasswordEntry.IsEnabled = !busy;
         TogglePasswordBtn.IsEnabled = !busy;
