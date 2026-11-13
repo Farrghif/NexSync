@@ -77,6 +77,9 @@ public sealed class StatusView : UserControl
     private readonly SolidColorBrush SuccessBg;
     private readonly SolidColorBrush AmberBg;
     private readonly SolidColorBrush DangerBorder;
+    private readonly SolidColorBrush HoverBg;
+    private readonly SolidColorBrush HoverBorder;
+    private readonly SolidColorBrush DangerBg;
 
     public sealed class DesktopFileItem
     {
@@ -108,6 +111,9 @@ public sealed class StatusView : UserControl
         SuccessBg = isDark ? Br("#064E3B") : Br("#ECFDF5");
         AmberBg = isDark ? Br("#451A03") : Br("#FEF3C7");
         DangerBorder = isDark ? Br("#7F1D1D") : Br("#FECACA");
+        HoverBg = isDark ? Br("#1F2937") : Br("#F8FAFC");
+        HoverBorder = isDark ? Br("#4B5563") : Br("#CBD5E1");
+        DangerBg = isDark ? Br("#7F1D1D") : Br("#FEE2E2");
         DesktopDialogs.SetDark(isDark);
         _recentPaths.Capacity = 10;
 
@@ -962,8 +968,8 @@ public sealed class StatusView : UserControl
             {
                 if (!item.IsSelected)
                 {
-                    card.Background = Br("#F8FAFC");
-                    card.BorderBrush = Br("#CBD5E1");
+                    card.Background = HoverBg;
+                    card.BorderBrush = HoverBorder;
                 }
             };
             card.MouseLeave += (_, _) =>
@@ -1448,7 +1454,7 @@ public sealed class StatusView : UserControl
         var btn = new Button
         {
             Content = text,
-            Background = isDanger ? Br("#FEE2E2") : BgWhite,
+            Background = isDanger ? DangerBg : BgWhite,
             Foreground = isDanger ? Danger : TextDark,
             BorderBrush = isDanger ? DangerBorder : BorderLight,
             BorderThickness = new Thickness(1),
@@ -1528,7 +1534,7 @@ public sealed class StatusView : UserControl
         };
         if (!isCurrent)
         {
-            btn.MouseEnter += (_, _) => { btn.Foreground = Brand; btn.Background = Br("#F1F5F9"); };
+            btn.MouseEnter += (_, _) => { btn.Foreground = Brand; btn.Background = HoverBg; };
             btn.MouseLeave += (_, _) => { btn.Foreground = TextDark; btn.Background = Brushes.Transparent; };
         }
         btn.Click += (_, _) => onClick();
