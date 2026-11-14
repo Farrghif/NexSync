@@ -34,7 +34,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         var key = Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Secret"] ?? "");
         if (key.Length < 32)
             throw new InvalidOperationException(
-                "JWT Secret must be at least 32 characters. Set via environment variable 'JWT_SECRET' in production.");
+                "JWT Secret must be at least 32 characters. Set via environment variable 'Jwt__Secret' in production.");
         
         o.TokenValidationParameters = new TokenValidationParameters
         {
