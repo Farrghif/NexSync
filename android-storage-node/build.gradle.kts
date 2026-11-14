@@ -1,9 +1,9 @@
 plugins {
-    id("com.android.application")
-    id("kotlin-android")
-    id("kotlin-kapt")
-    id("com.google.dagger.hilt.android")
-    id("kotlinx-serialization")
+    id("com.android.application") version "8.6.1"
+    id("org.jetbrains.kotlin.android") version "1.9.23"
+    id("org.jetbrains.kotlin.kapt") version "1.9.23"
+    id("com.google.dagger.hilt.android") version "2.51.1"
+    id("org.jetbrains.kotlin.plugin.serialization") version "1.9.23"
 }
 
 android {
@@ -113,8 +113,7 @@ dependencies {
     kapt("com.google.dagger:hilt-compiler:2.51.1")
     implementation("androidx.hilt:hilt-navigation-compose:1.2.0")
 
-    // Local Discovery (NSD)
-    implementation("androidx.mdns:mdns:1.0.0")
+    // Local Discovery (NSD) — uses platform android.nsd.NsdManager (no dependency needed)
 
     // QR Code
     implementation("com.google.mlkit:barcode-scanning:17.2.0")
@@ -141,5 +140,14 @@ dependencies {
 tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
     kotlinOptions {
         jvmTarget = "17"
+    }
+}
+
+// guava:32.1.1-jre declares it provides the listenablefuture capability, which collides with the
+// standalone listenablefuture module pulled in by androidx. Guava is the canonical provider.
+// https://github.com/google/guava/issues/6642
+configurations.all {
+    resolutionStrategy.capabilitiesResolution.withCapability("com.google.guava:listenablefuture") {
+        select(candidates.find { it.id.toString().contains("com.google.guava:guava") } ?: candidates.first())
     }
 }
