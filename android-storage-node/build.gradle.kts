@@ -82,6 +82,9 @@ dependencies {
     implementation("androidx.compose.runtime:runtime")
     implementation("androidx.compose.foundation:foundation")
 
+    // Material Components (XML themes: Theme.Material3.* used by AndroidManifest/AppTheme)
+    implementation("com.google.android.material:material:1.12.0")
+
     // Room Database
     implementation("androidx.room:room-runtime:2.6.1")
     implementation("androidx.room:room-ktx:2.6.1")
@@ -113,7 +116,7 @@ dependencies {
     kapt("com.google.dagger:hilt-compiler:2.51.1")
     implementation("androidx.hilt:hilt-navigation-compose:1.2.0")
 
-    // Local Discovery (NSD) — uses platform android.nsd.NsdManager (no dependency needed)
+    // Local Discovery (NSD): androidx.mdns:mdns does not exist on Google Maven; platform android.nsd is used instead
 
     // QR Code
     implementation("com.google.mlkit:barcode-scanning:17.2.0")
