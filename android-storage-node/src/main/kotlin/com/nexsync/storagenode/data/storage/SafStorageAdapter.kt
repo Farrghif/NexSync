@@ -573,7 +573,7 @@ class SafStorageAdapter(
                         StorageException.OperationFailed("Failed to create temporary file")
                     )
                 
-                tempUri = Uri.parse(tempFile.uri)
+                tempUri = tempFile.uri
                 
                 contentResolver.openOutputStream(tempUri)?.use { outputStream ->
                     while (true) {

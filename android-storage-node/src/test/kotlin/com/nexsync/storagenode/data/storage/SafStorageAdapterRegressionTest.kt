@@ -189,8 +189,7 @@ class SafStorageAdapterRegressionTest {
 /**
  * Integration tests (require real Android context / emulator)
  */
-class SafStorageAdapterIntegrationTest {
-    // These tests require AndroidJUnit4 and real device/emulator
+class SafStorageAdapterRegressionIntegrationTest {
     
     @Test
     fun testPermissionPersistenceAfterRestart() {

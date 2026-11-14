@@ -1,9 +1,9 @@
 plugins {
     id("com.android.application") version "8.6.1"
-    id("org.jetbrains.kotlin.android") version "1.9.23"
-    id("org.jetbrains.kotlin.kapt") version "1.9.23"
+    id("org.jetbrains.kotlin.android") version "1.9.24"
+    id("org.jetbrains.kotlin.kapt") version "1.9.24"
     id("com.google.dagger.hilt.android") version "2.51.1"
-    id("org.jetbrains.kotlin.plugin.serialization") version "1.9.23"
+    id("org.jetbrains.kotlin.plugin.serialization") version "1.9.24"
 }
 
 android {
@@ -46,6 +46,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     composeOptions {
@@ -71,6 +72,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.7.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.7.0")
     implementation("androidx.activity:activity-compose:1.8.1")
+    implementation("androidx.preference:preference-ktx:1.2.1")
 
     // Jetpack Compose
     implementation(platform("androidx.compose:compose-bom:2024.04.01"))
@@ -127,6 +129,7 @@ dependencies {
 
     // Testing
     testImplementation("junit:junit:4.13.2")
+    testImplementation(kotlin("test-junit"))
     testImplementation("org.mockito:mockito-core:5.7.0")
     testImplementation("org.mockito.kotlin:mockito-kotlin:5.1.0")
     testImplementation("io.mockk:mockk:1.13.10")

@@ -161,7 +161,8 @@ interface FileTransferDao {
     @Query("SELECT * FROM file_transfers ORDER BY startedAt DESC LIMIT :limit")
     fun observeRecent(limit: Int = 10): Flow<List<com.nexsync.storagenode.data.db.entities.FileTransferEntity>>
 
-    @Query("UPDATE file_transfers SET status = :status, transferredBytes = :transferredBytes, updatedAt = CURRENT_TIMESTAMP WHERE id = :id")
+    // file_transfers has no updatedAt column; startedAt/completedAt track timing instead
+    @Query("UPDATE file_transfers SET status = :status, transferredBytes = :transferredBytes WHERE id = :id")
     suspend fun updateProgress(id: String, status: String, transferredBytes: Long)
 
     @Query("DELETE FROM file_transfers WHERE completedAt < :olderThan AND status IN ('COMPLETED', 'FAILED_PERMANENTLY')")
