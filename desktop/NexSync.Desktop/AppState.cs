@@ -37,6 +37,14 @@ public sealed class AppState
         Changed?.Invoke();
     }
 
+    public void SignOut()
+    {
+        // LocalRoot is deliberately kept: the sync folder is a machine setting, not
+        // session state. Clearing it here made the next login re-prompt for a folder
+        // that is still configured (and still on disk) — see LoginView's routing.
+        GoTo(AppScreen.Login);
+    }
+
     public void RequestSync()
     {
         SyncRequested = true;

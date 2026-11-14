@@ -122,4 +122,20 @@ public sealed class SyncWiringTests
         lock (stub.Requests)
             Assert.AreEqual(0, stub.Requests.Count, "No sync traffic before a folder is configured.");
     }
+
+    [TestMethod]
+    public async Task BackgroundLoop_IdlesWhileSignedOut()
+    {
+        var stub = new StubHandler();
+        using var services = new DesktopServices("http://localhost:5189", _dataDir, stub);
+
+        // SetLocalRoot starts the background loop, but nobody has signed in — the
+        // same state the app is in after "Sign out" (which now keeps the folder).
+        services.State.SetLocalRoot(_root);
+        await Task.Delay(1500);
+
+        lock (stub.Requests)
+            Assert.AreEqual(0, stub.Requests.Count,
+                "The background loop must not call the server without a session.");
+    }
 }

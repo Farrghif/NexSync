@@ -79,33 +79,48 @@ public sealed class PushPipeline(
         if (!File.Exists(fullPath))
             return PushOutcome.TransientFailure;
         var parentServerId = ResolveParentServerId(op.RelPath);
-        using var form = new MultipartFormDataContent();
-        await using var stream = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-        var content = new StreamContent(stream);
-        content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/octet-stream");
-        form.Add(content, "file", LeafName(op.RelPath));
-        var url = parentServerId.HasValue ? $"api/files/upload?folderId={parentServerId}" : "api/files/upload";
-        using var req = new HttpRequestMessage(HttpMethod.Post, url) { Content = form };
-        req.Headers.Add("X-Operation-Id", op.OperationId.ToString());
-        using var res = await auth.SendWithAuthAsync(req, allowRefresh: true, ct);
-        return await HandleMutationResponseAsync(op, res,
-            onSuccess: async doc =>
-            {
-                var root = doc.RootElement;
-                var id = root.GetProperty("id").GetGuid();
-                var hash = root.TryGetProperty("hash", out var h) ? h.GetString() : null;
-                var size = root.TryGetProperty("size", out var s) ? s.GetInt64() : (long?)null;
-                using var tx = db.BeginTransaction();
-                var existing = _files.GetByPath(op.RelPath, tx);
-                _files.Upsert(new LocalFileRow(op.RelPath, id,
-                    existing?.ServerFolderId ?? parentServerId,
-                    hash ?? existing?.Hash, size ?? existing?.Size,
-                    existing?.LastAppliedSequence ?? 0, DateTime.UtcNow), tx);
-                queue.Complete(op, success: true, tx);
-                _processed.Record(new ProcessedOperationRow(op.OperationId, $"200 file {id}", DateTime.UtcNow), tx);
-                tx.Commit();
-            }, ct);
+        // ModifyFile targets an existing server entity: PUT its content instead of the create endpoint.
+        HttpRequestMessage req;
+        if (op.OpType == PendingOpType.ModifyFile && op.ServerId.HasValue)
+        {
+            var raw = new StreamContent(OpenRead(fullPath));
+            raw.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/octet-stream");
+            req = new HttpRequestMessage(HttpMethod.Put, $"api/files/{op.ServerId}/content") { Content = raw };
+        }
+        else
+        {
+            var form = new MultipartFormDataContent();
+            var content = new StreamContent(OpenRead(fullPath));
+            content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/octet-stream");
+            form.Add(content, "file", LeafName(op.RelPath));
+            var url = parentServerId.HasValue ? $"api/files/upload?folderId={parentServerId}" : "api/files/upload";
+            req = new HttpRequestMessage(HttpMethod.Post, url) { Content = form };
+        }
+        using (req)
+        {
+            req.Headers.Add("X-Operation-Id", op.OperationId.ToString());
+            using var res = await auth.SendWithAuthAsync(req, allowRefresh: true, ct);
+            return await HandleMutationResponseAsync(op, res,
+                onSuccess: async doc =>
+                {
+                    var root = doc.RootElement;
+                    var id = root.GetProperty("id").GetGuid();
+                    var hash = root.TryGetProperty("hash", out var h) ? h.GetString() : null;
+                    var size = root.TryGetProperty("size", out var s) ? s.GetInt64() : (long?)null;
+                    using var tx = db.BeginTransaction();
+                    var existing = _files.GetByPath(op.RelPath, tx);
+                    _files.Upsert(new LocalFileRow(op.RelPath, id,
+                        existing?.ServerFolderId ?? parentServerId,
+                        hash ?? existing?.Hash, size ?? existing?.Size,
+                        existing?.LastAppliedSequence ?? 0, DateTime.UtcNow), tx);
+                    queue.Complete(op, success: true, tx);
+                    _processed.Record(new ProcessedOperationRow(op.OperationId, $"200 file {id}", DateTime.UtcNow), tx);
+                    tx.Commit();
+                }, ct);
+        }
     }
+
+    private static Stream OpenRead(string path) => new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
 
     private async Task<PushOutcome> PushDeleteAsync(PendingOperationRow op, bool isFile, CancellationToken ct)
     {

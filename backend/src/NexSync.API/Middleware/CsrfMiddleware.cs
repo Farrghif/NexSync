@@ -20,16 +20,30 @@ public class CsrfMiddleware
         // Enable session if not already enabled
         await context.Session.LoadAsync();
 
-        // Generate or retrieve the session's CSRF token once per request.
-        // Regenerating on every request would invalidate the token the client holds,
-        // causing refresh/logout validation to always fail (Invalid CSRF token).
+        // Snapshot only as a fallback; ensure the session has a token pre-controller.
         var token = CsrfTokenService.GetOrCreateToken(context.Session);
 
-        // Add CSRF token to response header for client to use in subsequent requests
+        // Read the session's *current* token at response start: login/register/refresh
+        // rotate it mid-request, so a pre-controller snapshot hands header-reading
+        // clients a stale token and their next refresh fails with "Invalid CSRF token".
+        // Error responses are written after the pipeline unwinds past SessionMiddleware
+        // (session throws there); those paths never rotate, so the snapshot is current.
         context.Response.OnStarting(() =>
         {
-            if (!context.Response.Headers.ContainsKey(CsrfTokenHeader))
-                context.Response.Headers[CsrfTokenHeader] = token;
+            if (context.Response.Headers.ContainsKey(CsrfTokenHeader))
+                return Task.CompletedTask;
+
+            string current;
+            try
+            {
+                current = CsrfTokenService.GetOrCreateToken(context.Session);
+            }
+            catch (InvalidOperationException)
+            {
+                current = token;
+            }
+
+            context.Response.Headers[CsrfTokenHeader] = current;
             return Task.CompletedTask;
         });
 

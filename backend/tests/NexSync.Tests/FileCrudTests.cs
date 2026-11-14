@@ -71,6 +71,31 @@ public sealed class FileCrudTests
         var (res, _) = await _client.PutJsonAsync($"/api/files/{id2}", new { name = "ONE.txt", folderId = (Guid?)null });
         Assert.AreEqual(HttpStatusCode.Conflict, res.StatusCode);
     }
+
+    [TestMethod]
+    public async Task UpdateContent_NewBytes_Returns200_NewHash_DownloadReflects()
+    {
+        var (upRes, upDoc) = await _client.UploadAsync(Encoding.UTF8.GetBytes("original bytes"), "content.txt", "text/plain");
+        Assert.AreEqual(HttpStatusCode.Created, upRes.StatusCode);
+        var id = upDoc!.RootElement.GetProperty("id").GetGuid();
+        var oldHash = upDoc.RootElement.GetProperty("hash").GetString();
+
+        var req = new HttpRequestMessage(HttpMethod.Put, $"/api/files/{id}/content")
+        {
+            Content = new ByteArrayContent(Encoding.UTF8.GetBytes("updated bytes!"))
+        };
+        var res = await _client.SendRawAsync(req);
+
+        Assert.AreEqual(HttpStatusCode.OK, res.StatusCode);
+        var doc = await ApiClient.ParseAsync(res);
+        Assert.IsNotNull(doc);
+        var newHash = doc!.RootElement.GetProperty("hash").GetString();
+        Assert.AreNotEqual(oldHash, newHash);
+
+        var down = await _client.DownloadRawAsync(id);
+        Assert.AreEqual(HttpStatusCode.OK, down.StatusCode);
+        Assert.AreEqual("updated bytes!", await down.Content.ReadAsStringAsync());
+    }
 }
 
 

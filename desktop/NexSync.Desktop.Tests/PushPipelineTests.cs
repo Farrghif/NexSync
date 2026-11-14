@@ -461,5 +461,34 @@ public sealed class PushPipelineTests
             "Reconnect must reuse the original OperationId so server replay stays idempotent.");
         Assert.AreEqual(serverId, new LocalFileRepository(_db.Connection).GetByPath("offline.txt")?.ServerFileId);
     }
+
+    [TestMethod]
+    public async Task ModifyFile_SendsContentPut_UpdatesHash_CompletesOp()
+    {
+        var serverId = Guid.NewGuid();
+        HttpMethod? seenMethod = null;
+        string? seenPath = null;
+        var (queue, push, _) = Create(req =>
+        {
+            seenMethod = req.Method;
+            seenPath = req.RequestUri!.AbsolutePath;
+            if (req.Method == HttpMethod.Put)
+                return Json(HttpStatusCode.OK, new { id = serverId, hash = "NEWHASH", size = 13L });
+            return Json(HttpStatusCode.Conflict, new { code = "FILE_NAME_CONFLICT" });
+        });
+        File.WriteAllText(Path.Combine(_root, "edit.txt"), "edited bytes");
+        SeedFile(_db, "edit.txt", serverId, hash: "OLDHASH");
+        queue.Enqueue(PendingOpType.ModifyFile, "edit.txt", serverId: serverId);
+        var batch = queue.DequeueEligibleBatch(10);
+
+        var outcome = await push.PushAsync(batch[0]);
+
+        Assert.AreEqual(PushOutcome.Pushed, outcome);
+        Assert.AreEqual(HttpMethod.Put, seenMethod,
+            "ModifyFile must PUT content, not POST the create-upload endpoint.");
+        Assert.AreEqual($"/api/files/{serverId}/content", seenPath);
+        Assert.AreEqual(0, queue.CountPending());
+        Assert.AreEqual("NEWHASH", new LocalFileRepository(_db.Connection).GetByPath("edit.txt")?.Hash);
+    }
 }
 

@@ -632,8 +632,7 @@ public sealed class StatusView : UserControl
             }
             finally
             {
-                state.SetLocalRoot(null);
-                state.GoTo(AppScreen.Login);
+                state.SignOut();
                 signOut.IsEnabled = true;
                 signOutBorder.Opacity = 1;
             }

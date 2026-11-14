@@ -89,7 +89,12 @@ public sealed class ApiClient : IDisposable
     {
         if (path.StartsWith("http", StringComparison.OrdinalIgnoreCase))
             return new Uri(path);
-        return new Uri($"{BaseUrl}/{path.TrimStart('/')}");
+        path = path.TrimStart('/');
+        // BaseUrl already ends in /api while call sites pass "api/..." paths; drop the duplicate segment.
+        if (BaseUrl.EndsWith("/api", StringComparison.OrdinalIgnoreCase)
+            && path.StartsWith("api/", StringComparison.OrdinalIgnoreCase))
+            path = path["api/".Length..];
+        return new Uri($"{BaseUrl}/{path}");
     }
 
     private async Task<HttpResponseMessage> SendWithAuthAsync(

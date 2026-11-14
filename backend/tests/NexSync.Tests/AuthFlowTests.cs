@@ -1,3 +1,6 @@
+using System.Net.Http.Json;
+using System.Text.Json;
+
 namespace NexSync.Tests;
 
 [TestClass]
@@ -89,6 +92,35 @@ public sealed class AuthFlowTests
         Assert.AreEqual(System.Net.HttpStatusCode.NoContent, res.StatusCode);
         var (res2, _) = await _client.RefreshAsync();
         Assert.AreEqual(System.Net.HttpStatusCode.Unauthorized, res2.StatusCode);
+    }
+
+    [TestMethod]
+    public async Task Refresh_PresentingHeaderToken_Succeeds_HeaderMustMatchSession()
+    {
+        var http = _factory.CreateClient();
+
+        using var reg = await http.PostAsJsonAsync("/api/auth/register",
+            new { email = "grace@nexsync.dev", password = "Password123!", fullName = "Grace" });
+        Assert.AreEqual(System.Net.HttpStatusCode.OK, reg.StatusCode);
+
+        // Header-reading clients (desktop) take their token from the X-CSRF-Token response
+        // header. It must equal the body token stored in the session; if the header lags
+        // behind a rotation, the client's next refresh fails with "Invalid CSRF token".
+        var headerToken = reg.Headers.GetValues("X-CSRF-Token").Single();
+        using var body = JsonDocument.Parse(await reg.Content.ReadAsStringAsync());
+        var bodyToken = body.RootElement.GetProperty("csrfToken").GetString();
+        Assert.AreEqual(bodyToken, headerToken,
+            "response header must carry the session's current CSRF token");
+
+        var cookieHeader = string.Join("; ", reg.Headers.GetValues("Set-Cookie")
+            .Select(v => v.Split(';')[0]));
+
+        using var refresh = new HttpRequestMessage(HttpMethod.Post, "/api/auth/refresh");
+        refresh.Headers.Add("X-CSRF-Token", headerToken);
+        refresh.Headers.Add("Cookie", cookieHeader);
+        using var res = await http.SendAsync(refresh);
+        Assert.AreEqual(System.Net.HttpStatusCode.OK, res.StatusCode,
+            "refresh presenting the header token must succeed");
     }
 }
 

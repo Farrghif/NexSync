@@ -105,7 +105,13 @@ public sealed class DesktopServices : IDisposable
         {
             try
             {
-                await RunSyncCycleAsync(ct);
+                // Idle while signed out: with no session every request 401s and the
+                // refresh attempt would hit the server on every tick. Sign-out used to
+                // stop the engine outright; now the folder is kept, so the loop waits
+                // here instead. Signing in resumes on the next tick, and queued ops are
+                // preserved (401 maps to AuthFailed, never a completion).
+                if (Auth.IsSignedIn)
+                    await RunSyncCycleAsync(ct);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {

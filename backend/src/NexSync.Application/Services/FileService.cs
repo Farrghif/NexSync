@@ -114,6 +114,66 @@ public class FileService(
         return Map(f, await OriginDeviceIdAsync(f.Id));
     }
 
+    public async Task<FileDto> UpdateContentAsync(Guid userId, Guid fileId, Stream fileStream, Guid? deviceId = null, MutationContext? mutation = null)
+    {
+        var f = await files.GetByIdAsync(fileId);
+        if (f is null || f.OwnerId != userId)
+            throw new ForbiddenException("Access denied.");
+        var (storagePath, hash, size) = await storage.SaveFileAsync(userId, fileStream, f.Name);
+        var fingerprint = mutation is null ? null : RequestFingerprint.ForMutation("PUT", $"/api/files/{fileId}/content",
+            ("hash", hash), ("size", size.ToString()));
+        if (mutation is not null)
+        {
+            var seen = await idempotency.FindAsync(mutation.OperationId);
+            if (seen is not null)
+            {
+                await DiscardTempIfOrphanAsync(storagePath);
+                return ReplayOrThrow<FileDto>(userId, seen, fingerprint!);
+            }
+        }
+        var oldPath = f.StoragePath;
+        f.Hash = hash;
+        f.Size = size;
+        f.StoragePath = storagePath;
+        f.UpdatedAt = DateTime.UtcNow;
+        FileDto dto;
+        await using var tx = await transactions.BeginTransactionAsync();
+        try
+        {
+            files.StageUpdate(f);
+            var change = await changes.WriteFileChangeAsync(userId, fileId, SyncOperation.Modified, f.Name, f.FolderId, hash, size, f.ContentType, deviceId);
+            dto = Map(f, change.OriginDeviceId);
+            if (mutation is not null)
+                await idempotency.StageAsync(mutation.OperationId, userId, deviceId ?? Guid.Empty, fingerprint!,
+                    mutation.SuccessStatus, JsonSerializer.Serialize(dto, PayloadJson), fileId, change.Sequence);
+            await files.SaveChangesAsync();
+            await tx.CommitAsync();
+        }
+        catch (Exception) when (mutation is not null)
+        {
+            await tx.RollbackAsync();
+            await DiscardTempIfOrphanAsync(storagePath);
+            var raced = await idempotency.FindAsync(mutation.OperationId);
+            if (raced is not null && raced.UserId == userId
+                && string.Equals(raced.RequestFingerprint, fingerprint, StringComparison.Ordinal))
+                return ReplayOrThrow<FileDto>(userId, raced, fingerprint!);
+            throw;
+        }
+        catch
+        {
+            await tx.RollbackAsync();
+            var refs = await files.GetCountByStoragePathAsync(storagePath);
+            if (refs == 0) await storage.DeleteFileAsync(storagePath);
+            throw;
+        }
+        if (!string.Equals(oldPath, storagePath, StringComparison.Ordinal))
+        {
+            var refs = await files.GetCountByStoragePathAsync(oldPath);
+            if (refs == 0) await storage.DeleteFileAsync(oldPath);
+        }
+        return dto;
+    }
+
     public async Task<Stream> DownloadAsync(Guid userId, Guid fileId)
     {
         var f = await files.GetByIdAsync(fileId);

@@ -33,6 +33,7 @@ public interface IFolderService
 public interface IFileService
 {
     Task<FileDto> UploadAsync(Guid userId, Stream fileStream, string fileName, string contentType, Guid? folderId, Guid? deviceId = null, MutationContext? mutation = null);
+    Task<FileDto> UpdateContentAsync(Guid userId, Guid fileId, Stream fileStream, Guid? deviceId = null, MutationContext? mutation = null);
     Task<FileDto> GetByIdAsync(Guid userId, Guid fileId);
     Task<Stream> DownloadAsync(Guid userId, Guid fileId);
     Task<FileDto> UpdateAsync(Guid userId, Guid fileId, string name, Guid? folderId, Guid? deviceId = null, MutationContext? mutation = null);

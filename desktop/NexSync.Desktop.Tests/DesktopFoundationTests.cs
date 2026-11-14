@@ -34,6 +34,21 @@ public sealed class AppStateTests
     }
 
     [TestMethod]
+    public void SignOut_ReturnsToLogin_ButKeepsTheSyncFolder()
+    {
+        // The sync folder is a machine setting, not session state. Clearing it on
+        // sign-out made the next login re-prompt "Choose your NexSync folder" even
+        // though the folder was still configured and still on disk.
+        var state = new AppState();
+        state.SetLocalRoot(@"C:\NexSync");
+
+        state.SignOut();
+
+        Assert.AreEqual(AppScreen.Login, state.CurrentScreen);
+        Assert.AreEqual(@"C:\NexSync", state.LocalRoot);
+    }
+
+    [TestMethod]
     public void SyncRequest_CanBeSignalledAndCleared()
     {
         var state = new AppState();

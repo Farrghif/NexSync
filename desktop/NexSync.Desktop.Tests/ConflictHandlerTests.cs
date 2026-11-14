@@ -538,6 +538,8 @@ public sealed class ConflictHandlerTests
             var url = req.RequestUri!.ToString();
             if (url.Contains("/api/files/upload") && req.Method == HttpMethod.Post)
                 return Json(HttpStatusCode.Conflict, new { code = "FILE_NAME_CONFLICT" });
+            if (url.Contains("/content") && req.Method == HttpMethod.Put)
+                return Json(HttpStatusCode.Conflict, new { code = "FILE_NAME_CONFLICT" });
             if (url.Contains("/api/files/") && req.Method == HttpMethod.Post)
                 return Json(HttpStatusCode.Created, new
                 {

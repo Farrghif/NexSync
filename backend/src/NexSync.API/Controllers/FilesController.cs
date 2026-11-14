@@ -55,6 +55,30 @@ public class FilesController(IFileService files, IDeviceService devices, IIdempo
         return CreatedAtAction(nameof(GetById), new { id = res.Id }, res);
     }
 
+    [HttpPut("{id:guid}/content")]
+    [RequestSizeLimit(104_857_600)]
+    public async Task<IActionResult> UpdateContent(Guid id)
+    {
+        if (id == Guid.Empty)
+            throw new DomainException("Invalid file ID.");
+        if (Request.ContentLength == 0)
+            return BadRequest(new { message = "No file provided." });
+
+        var deviceId = await ResolveDeviceAsync();
+        MutationContext? mutation = null;
+
+        if (Request.Headers.TryGetValue("X-Operation-Id", out var rawOp))
+        {
+            if (!Guid.TryParse(rawOp.ToString(), out var opId))
+                throw new DomainException("X-Operation-Id header must be a valid UUID.");
+            mutation = new MutationContext(opId, string.Empty, StatusCodes.Status200OK);
+        }
+
+        await using var stream = Request.Body;
+        var res = await files.UpdateContentAsync(UserId, id, stream, deviceId, mutation);
+        return Ok(res);
+    }
+
     [HttpGet("{id:guid}")]
     public async Task<IActionResult> GetById(Guid id)
     {
