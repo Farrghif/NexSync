@@ -49,6 +49,18 @@
                 <VerticalStackLayout Spacing="14">
 
                     <VerticalStackLayout Spacing="6">
+                        <Label Text="SERVER URL" FontSize="11" FontAttributes="Bold" TextColor="#8B90A0"/>
+                        <Border Stroke="{AppThemeBinding Light=#E6E8EF, Dark=#262A38}" StrokeThickness="1"
+                                BackgroundColor="{AppThemeBinding Light=#FFFFFF, Dark=#0F111A}" Padding="10,1">
+                            <Border.StrokeShape><RoundRectangle CornerRadius="10"/></Border.StrokeShape>
+                            <Entry x:Name="ServerUrlEntry" Placeholder="https://example.ngrok-free.dev/api"
+                                   Keyboard="Url" ReturnType="Next" FontSize="14"
+                                   TextColor="{AppThemeBinding Light=#14161D, Dark=#F2F3F8}" PlaceholderColor="#8B90A0"
+                                   BackgroundColor="Transparent"/>
+                        </Border>
+                    </VerticalStackLayout>
+
+                    <VerticalStackLayout Spacing="6">
                         <Label Text="EMAIL" FontSize="11" FontAttributes="Bold" TextColor="#8B90A0"/>
                         <Border Stroke="{AppThemeBinding Light=#E6E8EF, Dark=#262A38}" StrokeThickness="1"
                                 BackgroundColor="{AppThemeBinding Light=#FFFFFF, Dark=#0F111A}" Padding="10,1">
