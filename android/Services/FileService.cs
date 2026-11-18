@@ -79,16 +79,7 @@ public sealed class FileService(ApiClient api)
 
     public async Task<string> GetDownloadPathAsync(string fileId, string fileName, CancellationToken ct = default)
     {
-        var url = $"{ApiConfig.BaseUrl}/files/{fileId}/download";
-        var token = SecureStore.GetAccessToken();
-        var req = new HttpRequestMessage(HttpMethod.Get, url);
-        if (!string.IsNullOrEmpty(token))
-            req.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
-        var dev = SecureStore.CurrentDeviceId;
-        if (!string.IsNullOrEmpty(dev))
-            req.Headers.Add("X-Device-Id", dev);
-        using var client = new HttpClient();
-        var res = await client.SendAsync(req, ct);
+        using var res = await api.DownloadAsync($"api/files/{fileId}/download", ct);
         res.EnsureSuccessStatusCode();
         var dest = Path.Combine(FileSystem.CacheDirectory, fileName);
         await using var src = await res.Content.ReadAsStreamAsync(ct);

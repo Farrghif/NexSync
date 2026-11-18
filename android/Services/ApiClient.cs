@@ -11,6 +11,7 @@ public sealed class ApiClient : IDisposable
     private readonly CookieContainer _cookies = new();
     private readonly SemaphoreSlim _refreshLock = new(1, 1);
     private string? _accessToken;
+    private string? _csrfToken;
     private bool _disposed;
 
     private static readonly JsonSerializerOptions JsonOpts = new()
@@ -41,7 +42,7 @@ public sealed class ApiClient : IDisposable
         var saved = Preferences.Default.Get<string?>("nexsync_refresh_cookie", null);
         if (!string.IsNullOrEmpty(saved))
         {
-            try { _cookies.Add(new Uri(BaseUrl + "/"), new Cookie("refreshToken", saved) { Path = "/api/auth" }); } catch { }
+            try { _cookies.Add(new Uri(BaseUrl + "/"), new Cookie("refreshToken", saved) { Path = "/api" }); } catch { }
         }
     }
 
@@ -49,7 +50,8 @@ public sealed class ApiClient : IDisposable
     {
         try
         {
-            var c = _cookies.GetCookies(new Uri(BaseUrl + "/"))["refreshToken"];
+            var uri = ResolveUri("api/auth");
+            var c = _cookies.GetCookies(uri)["refreshToken"] ?? _cookies.GetCookies(new Uri(BaseUrl + "/"))["refreshToken"];
             if (c is not null && !string.IsNullOrEmpty(c.Value))
                 Preferences.Default.Set("nexsync_refresh_cookie", c.Value);
         }
@@ -68,11 +70,17 @@ public sealed class ApiClient : IDisposable
     }
 
     public string? AccessToken => _accessToken;
+    public string? CsrfToken => _csrfToken;
 
     public void SetAccessToken(string? token)
     {
         _accessToken = token;
         SecureStore.SetAccessToken(token);
+    }
+
+    public void SetCsrfToken(string? token)
+    {
+        _csrfToken = token;
     }
 
     private string? CurrentDeviceId => SecureStore.CurrentDeviceId;
@@ -103,12 +111,18 @@ public sealed class ApiClient : IDisposable
         if (!string.IsNullOrEmpty(_accessToken) && request.Headers.Authorization is null)
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _accessToken);
 
+        if (!string.IsNullOrEmpty(_csrfToken) && !request.Headers.Contains("X-CSRF-Token"))
+            request.Headers.Add("X-CSRF-Token", _csrfToken);
+
         if (!string.IsNullOrEmpty(CurrentDeviceId)
             && !request.Headers.Contains("X-Device-Id")
             && !IsDeviceRegistration(request))
             request.Headers.Add("X-Device-Id", CurrentDeviceId!);
 
         var res = await _http.SendAsync(request, ct);
+        if (res.Headers.TryGetValues("X-CSRF-Token", out var csrfValues))
+            _csrfToken = csrfValues.FirstOrDefault();
+
         PersistRefreshCookie();
 
         if (res.StatusCode != HttpStatusCode.Unauthorized || !allowRefresh)
@@ -126,12 +140,17 @@ public sealed class ApiClient : IDisposable
         var retry = await CloneRequestAsync(request, ct);
         if (!string.IsNullOrEmpty(_accessToken))
             retry.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _accessToken);
+        if (!string.IsNullOrEmpty(_csrfToken) && !retry.Headers.Contains("X-CSRF-Token"))
+            retry.Headers.Add("X-CSRF-Token", _csrfToken);
         if (!string.IsNullOrEmpty(CurrentDeviceId)
             && !retry.Headers.Contains("X-Device-Id")
             && !IsDeviceRegistration(retry))
             retry.Headers.Add("X-Device-Id", CurrentDeviceId!);
 
         var res2 = await _http.SendAsync(retry, ct);
+        if (res2.Headers.TryGetValues("X-CSRF-Token", out var csrfValues2))
+            _csrfToken = csrfValues2.FirstOrDefault();
+
         PersistRefreshCookie();
         return res2;
     }
@@ -142,14 +161,19 @@ public sealed class ApiClient : IDisposable
         try
         {
             var req = new HttpRequestMessage(HttpMethod.Post, ResolveUri("api/auth/refresh"));
-            req.Headers.Add("X-CSRF", "1");
+            if (!string.IsNullOrEmpty(_csrfToken))
+                req.Headers.Add("X-CSRF-Token", _csrfToken);
             var res = await _http.SendAsync(req, ct);
+            if (res.Headers.TryGetValues("X-CSRF-Token", out var csrfValues))
+                _csrfToken = csrfValues.FirstOrDefault();
             PersistRefreshCookie();
             if (!res.IsSuccessStatusCode) return false;
             var body = await res.Content.ReadAsStringAsync(ct);
             using var doc = JsonDocument.Parse(body);
             var token = doc.RootElement.GetProperty("accessToken").GetString();
             if (string.IsNullOrEmpty(token)) return false;
+            if (doc.RootElement.TryGetProperty("csrfToken", out var csrfProp) && csrfProp.ValueKind == JsonValueKind.String)
+                _csrfToken = csrfProp.GetString();
             SetAccessToken(token);
             return true;
         }
@@ -218,9 +242,16 @@ public sealed class ApiClient : IDisposable
         return (res, doc);
     }
 
+    public async Task<HttpResponseMessage> DownloadAsync(string path, CancellationToken ct = default)
+    {
+        var req = new HttpRequestMessage(HttpMethod.Get, ResolveUri(path));
+        return await SendWithAuthAsync(req, true, ct);
+    }
+
     public void ClearAuth()
     {
         _accessToken = null;
+        _csrfToken = null;
         SecureStore.SetAccessToken(null);
         ClearRefreshCookie();
     }

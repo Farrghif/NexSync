@@ -88,6 +88,12 @@ let refreshScheduled = false;
 
 api.interceptors.response.use(
   (res) => {
+    // If backend returns a new CSRF token in header, update it
+    const csrfHeader = res.headers["x-csrf-token"];
+    if (typeof csrfHeader === "string" && csrfHeader) {
+      setCsrfToken(csrfHeader);
+    }
+
     // After successful auth response, schedule proactive refresh
     if (!refreshScheduled && res.config.url?.includes("/auth/")) {
       refreshScheduled = true;

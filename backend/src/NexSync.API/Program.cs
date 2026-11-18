@@ -1,5 +1,7 @@
+using System.Net;
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.IdentityModel.Tokens;
 using NexSync.API.Extensions;
 using NexSync.API.Middleware;
@@ -7,6 +9,19 @@ using NexSync.API.Security;
 using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Forwarded Headers: let ASP.NET Core trust X-Forwarded-For/Proto/Host from reverse proxies (ngrok, etc.).
+// Without this, Request.Scheme stays "http" behind a TLS-terminating proxy, breaking OpenAPI server URLs,
+// cookie Secure flags, and HTTPS redirects.
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto | ForwardedHeaders.XForwardedHost;
+    // Only trust proxies on loopback (ngrok runs locally, production proxies should be listed explicitly).
+    options.KnownIPNetworks.Clear();
+    options.KnownProxies.Clear();
+    options.KnownProxies.Add(IPAddress.Loopback);
+    options.KnownProxies.Add(IPAddress.IPv6Loopback);
+});
 
 // Session backing store required by AddSession.
 // shortcut: in-memory only — sessions are lost on restart and not shared across instances; use AddStackExchangeRedisCache when running multi-instance.
@@ -25,8 +40,10 @@ builder.Services.AddSession(options =>
 builder.Services.AddControllers();
 builder.Services.AddOpenApi();
 
-// Add rate limiter: max 5 requests per 60 seconds per IP on auth endpoints
-builder.Services.AddRateLimiter(maxRequests: 5, windowSeconds: 60);
+// Add rate limiter: max 5 requests per 60 seconds per IP on auth endpoints (configurable for dev/tests)
+var maxAuthRequests = builder.Configuration.GetValue<int?>("RateLimiting:MaxRequests") ?? 60;
+var authWindowSeconds = builder.Configuration.GetValue<int?>("RateLimiting:WindowSeconds") ?? 60;
+builder.Services.AddRateLimiter(maxRequests: maxAuthRequests, windowSeconds: authWindowSeconds);
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(o =>
@@ -54,6 +71,7 @@ builder.Services.AddCors(o => o.AddPolicy("WebClient", p => p
     .WithOrigins(builder.Configuration.GetSection("Cors:Origins").Get<string[]>() ?? ["http://localhost:5173"])
     .WithMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
     .WithHeaders("Content-Type", "Authorization", "X-Device-Id", "X-Operation-Id", "X-CSRF-Token")
+    .WithExposedHeaders("X-CSRF-Token")
     .AllowCredentials()));
 
 builder.Services.AddInfrastructure(builder.Configuration);
@@ -61,12 +79,15 @@ builder.Services.AddApplication();
 
 var app = builder.Build();
 
+// ForwardedHeaders MUST run before anything that reads Request.Scheme or RemoteIpAddress.
+app.UseForwardedHeaders();
+
 // Security middleware pipeline (order matters)
 app.UseMiddleware<ErrorHandlingMiddleware>();
-app.UseMiddleware<RateLimitingMiddleware>();      // Rate limit before CSRF check
+app.UseCors("WebClient");                         // CORS before rate limit so OPTIONS preflight returns immediately
+app.UseMiddleware<RateLimitingMiddleware>();       // Rate limit before CSRF check
 app.UseSession();                                 // Session must run before CsrfMiddleware (it reads context.Session)
 app.UseMiddleware<CsrfMiddleware>();              // CSRF token generation
-app.UseCors("WebClient");
 app.UseAuthentication();
 app.UseAuthorization();
 

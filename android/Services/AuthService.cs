@@ -43,7 +43,7 @@ public sealed class AuthService(ApiClient api)
         try
         {
             var (res, _) = await api.SendAsync(HttpMethod.Post, "api/auth/logout",
-                null, headers: new() { ["X-CSRF"] = "1" }, allowRefresh: false, ct: ct);
+                null, allowRefresh: false, ct: ct);
             _ = res;
         }
         catch { }
@@ -58,6 +58,8 @@ public sealed class AuthService(ApiClient api)
     {
         var root = doc.RootElement;
         var accessToken = root.GetProperty("accessToken").GetString()!;
+        if (root.TryGetProperty("csrfToken", out var csrfProp) && csrfProp.ValueKind == JsonValueKind.String)
+            api.SetCsrfToken(csrfProp.GetString());
         var user = root.GetProperty("user");
         var id = user.GetProperty("id").GetString()!;
         var email = user.GetProperty("email").GetString()!;
